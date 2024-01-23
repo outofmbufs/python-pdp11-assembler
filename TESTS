@@ -1,0 +1,21 @@
+#!/bin/sh
+
+FAILS=""
+TESTFILES="tokutil.py astokens.py expression.py segment.py parsetests.py"
+
+for TEST in $TESTFILES
+do
+    echo "Testing $TEST"
+    python3 $TEST
+    if [ $? -ne 0 ]
+    then
+	echo TEST $TEST failed
+	FAILS="$TEST $FAILS"
+    fi
+done
+
+if [ x"$FAILS" != x ]
+then
+    echo "**TEST FAILURES: $FAILS"
+    exit 1
+fi
