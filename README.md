@@ -31,6 +31,8 @@ Argument --format controls the output format, and the default output stream:
  * --format load :: SIMH binary, suitable for LOAD command. Default output to a.simh
  * --format 407 :: unix v7 a.out format, NO SYMBOL TABLE. Default output to a.out
 
+A non-zero base address ("origin") can be set via --org.
+
 The output stream can be set using -o/--output
 
 If --sys is given, the default (unix v7) symbols for various system calls (read, write, fork, and so forth) are defined. Equivalent to prepending /usr/include/sys.s on an actual v7 unix system.
