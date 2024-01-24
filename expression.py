@@ -223,14 +223,6 @@ class XNode:
         return self._w2b(val & 0xFFFF)
 
 
-class EmptyNode(XNode):
-    """Available as a non-None 'nothing' node."""
-    nbytes = 0
-
-    def __init__(self):
-        super().__init__(self.NOVALUE)
-
-
 class Constant(XNode):
     """A direct constant appearing in an expression."""
     # Turns out everything at the generic layer works perfectly as

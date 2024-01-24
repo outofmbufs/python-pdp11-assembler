@@ -53,7 +53,7 @@ class TokStreamEnhancer:
         if lasttok is not None:
             tokstreams = (*tokstreams, iter((lasttok,)))
 
-        self._tokens = itertools.chain(*tokstreams)
+        self._tokens = itertools.chain.from_iterable(tokstreams)
         self._eoftok = eoftok
 
         self._pushedback = []                  # see peektok() etc

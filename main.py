@@ -43,7 +43,7 @@ OUTPUT_INFO = {
 }
 
 
-# This allows argparse.FileType() to be used while also explosing the
+# This allows argparse.FileType() to be used while also exposing the
 # file name for error reporting. Although the same information is available
 # via the .name io class attribute, that attribute doesn't exist for
 # StringIO objects (--org/--sys). And though --sys and --org streams

@@ -84,7 +84,7 @@ class TestMethods(unittest.TestCase):
             az = AP.ASMParser(ASMTokenizer(io.StringIO(s)).tokens())
             self.firstpass_and_check(az)
             chunks = az.secondpass()
-            bseq = bytes(itertools.chain(*(x[1] for x in chunks)))
+            bseq = bytes(itertools.chain.from_iterable(x[1] for x in chunks))
             self._words_compare(bseq, XNode._w2b(expected_words))
 
     def test_undefsym(self):

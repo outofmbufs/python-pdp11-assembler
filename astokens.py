@@ -30,7 +30,7 @@ import re
 # REGULAR EXPRESSIONS for lexical analysis of tokens. NOTE:
 #   * ORDER MATTERS. The first match will rule.
 #   * The TokenID Enum is built dynamically from names here.
-# See also _synthetictokens for a few more types of tokens.
+# See also _othertokens for a few more types of tokens.
 #
 
 token_specs = [

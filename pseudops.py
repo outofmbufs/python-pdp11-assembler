@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from expression import XNode, EmptyNode, Constant
+from expression import XNode, Constant
 from astokens import TokenID
 
 

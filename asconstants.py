@@ -110,7 +110,7 @@ DOUBLEOPERANDS = {
 }
 
 # "63" refers src being a fully-general 6-bit mode and the dst restricted
-# to to register only. The fields are also flipped in the instruction
+# to register only. The fields are also flipped in the instruction
 # encoding (opode::dst::src). See, for example, class TwoOper63.
 D63OPERANDS = {
     'mul': 0o070000,

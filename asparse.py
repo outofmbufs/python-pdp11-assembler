@@ -90,7 +90,7 @@ class ASMParser:
 
         # In the past there were bugs where some syntax errors would
         # cause no token consumption, resulting in an infinite loop here.
-        # 'noprogress' protects against that just in case.
+        # 'unchanged' protects against that just in case.
         unchanged = object()               # matches nothing
         while not self._tk.peekif(lambda t: t is unchanged, eofmatch=True):
             unchanged = self._tk.peektok()
@@ -213,7 +213,7 @@ class ASMParser:
 
     def squishbranches(self, seg):
         # Pseudo-branches (jbr, jne, etc) are initially assumed to
-        # be in their long-form: 6 bytes for jne
+        # be in their long-form: 6 bytes for jne etc, 4 for jbr.
         # Find every pseudo-branch and see if it can be reduced to
         # a regular branch. Make repeated passes through the segment
         # until no more squishing happens. Was there a better way?
