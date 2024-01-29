@@ -495,12 +495,6 @@ class ASMParser:
         TokenID.CARET
     )
 
-    # see note on ADJACENCY for exprs below
-    ADJACENCY_ADDS = (TokenID.LBRA,
-                      TokenID.IDENTIFIER,
-                      TokenID.TEMPLABREF,
-                      TokenID.CONSTANT)
-
     # Per the 'as' manual:
     #   * An expression is a sequence of symbols representing a value.
     #   * Its constituents are identifiers, constants, temporary symbols,
