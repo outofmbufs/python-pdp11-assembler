@@ -20,93 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from dataclasses import dataclass
-from enum import Enum
-import typing
-import re
+
+from tokenizer import Tokenizer, TokenMatch, TokenRuleSuite, Token
 
 
-#
-# REGULAR EXPRESSIONS for lexical analysis of tokens. NOTE:
-#   * ORDER MATTERS. The first match will rule.
-#   * The TokenID Enum is built dynamically from names here.
-# See also _othertokens for a few more types of tokens.
-#
-
-token_specs = [
-    ('WHITESPACE', r'\s+'),        # but see _tokmods re: NEWLINE
-    ('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
-    ('TEMPLABREF', r'[0-9](f|b)'),
-    ('CONSTANT', r'-?[0-9]+\.?'),
-    ('STRING', r'<>|(<[^<][^>]*>)'),
-    ('LPAREN', r'\('),
-    ('RPAREN', r'\)'),
-    ('LBRA', r'\['),
-    ('RBRA', r'\]'),
-    ('EQ', r'='),
-    ('PLUS', r'\+'),
-    ('MINUS', r'-'),
-    ('STAR', r'\*'),
-    ('VSLASHES', r'\\/'),
-    ('AMPERSAND', r'&'),
-    ('BAR', r'\|'),
-    ('RR', r'>>'),
-    ('LL', r'<<'),
-    ('PERCENT', r'%'),
-    ('BANG', r'\!'),
-    ('CARET', r'\^'),
-    ('DOLLAR', r'\$'),
-    ('COLON', r'\:'),
-    ('SEMICOLON', r'\;'),
-    ('SQUOTED', r"'((\\.)|.)"),
-    ('DQUOTED', r'\"((\\.)|.){2}'),
-    ('COMMENT', r'/[^\n]*'),
-    ('COMMA', r','),
-
-    ('BAD', r'.'),       # matches anything; MUST (obviously?) BE LAST!!
-]
-
-
-# these have no corresponding regex
-_othertokens = ['NEWLINE', 'NULLTOKEN', 'EOF']
-
-TokenID = Enum('TokenID', [t for t, r in token_specs] + _othertokens)
-
-# some handy categories
-TokenID.STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
-
-
-# where a given token was found; solely for syntax error reporting
-@dataclass(frozen=True)
-class TokLoc:
-    source: str = "unknown"
-    line: int = None
-    start: int = 0
-    end: int = 0
-
-
-@dataclass
-class Token:
-    id: TokenID
-    value: typing.Any
-    orig: str
-    location: TokLoc = TokLoc()
-
-    @classmethod
-    def nulltok(cls, val=None):
-        """Convenience for constructing a NULLTOKEN."""
-        return cls(TokenID.NULLTOKEN, value=val, orig=None, location=TokLoc())
-
-
-class ASMTokenizer:
+class ASMTokenizer(Tokenizer):
     """Lexical analysis on a textfile."""
 
-    # set this to True to retain the Unix "only the first 8 characters
-    # are significant" feature of identifiers; otherwise they are full-length
-    # See also id8 argument in __init__
-    STRICT_ID8 = False
-
-    def __init__(self, strings=None, /, *, name=None, startnum=1, id8=False):
+    def __init__(self, strings=None, /, *,
+                 srcname=None, startnum=1, id8=False):
         """Set up a Tokenizer; see tokens() to generate tokens.
 
         Arguments:
@@ -114,7 +36,7 @@ class ASMTokenizer:
                        it is an open text file. It is used duck-typed as:
                           for s in strings:
                               ... tokenize s ...
-           name     -- for error reporting, but otherwise ignored.
+           srcname  -- for error reporting, but otherwise ignored.
                        Usually should be specified as the input file name.
 
            startnum -- for error reporting, but otherwise ignored.
@@ -128,78 +50,35 @@ class ASMTokenizer:
            ASMTokenizer([s])
 
         """
-        self.strings = strings
-        self.name = name
-        self.startnum = startnum
+
+        super().__init__(_TRules, strings, srcname=srcname, startnum=startnum)
+
         if id8:
-            self.STRICT_ID8 = True
-        self.tok_re = '|'.join(f'(?P<{tn}>{x})' for tn, x in token_specs)
+            # this is quite the hack, but ... truncate IDENTIFIER tokens
+            # this way so that the TokenRules (and TokenIDs) can be common
+            # across instances but the id8 functionality is per-instance.
+            self.string_to_tokens = self.__id8   # override Tokenizer
 
-    def tokens(self):
-        """GENERATE tokens for the entire file."""
-        if self.startnum is None:         # no line numbers
-            g = ((None, s) for s in self.strings)
-        else:
-            g = enumerate(self.strings, start=self.startnum)
-        for i, s in g:
-            yield from self.string_to_tokens(s, linenumber=i, name=self.name)
+    def __id8(self, *args, **kwargs):
+        """Filter imposed on tokens in id8 mode; truncate long IDENTIFIERs."""
+        for t in super().string_to_tokens(*args, **kwargs):
+            if t.id == TokenID.IDENTIFIER:
+                t = Token(t.id, t.value[:8], t.origin, t.location)
+            yield t
 
-    def string_to_tokens(self, s, /, *, linenumber=None, name=None):
-        """GENERATE tokens from a string.
+    # CONSTANT post-processing function (interfacer) for Tokenizer rules
+    @classmethod
+    def ppf_constant(cls, trs, tokID, val):
+        # note that because SQ/DQUOTED use this, must slam tokID
+        return trs.TokenID.CONSTANT, cls._intcvt(val)
 
-        Optional keyword argument linenumber will be put into error messages.
-        """
-        for mo in re.finditer(self.tok_re, s):
-            tok_ID, value = self._tokmods(TokenID[mo.lastgroup], mo.group())
-            if tok_ID is not None:   # None means ignore this token
-                loc = TokLoc(name, linenumber, mo.start(), mo.end())
-                yield Token(tok_ID, value, s, loc)
-
-    def _tokmods(self, tok_ID, value):
-        """Return a new tok_ID, value per special rules for some tokens."""
-
-        # some TokenIDs get modified:
-        #   WHITESPACE -- if it contains a \n return a NEWLINE
-        #                 otherwise don't even return it; skip it
-        #   COMMENT    -- don't even return it; skip it
-        #   CONSTANT   -- convert the value from string to int
-        #   STRING     -- backslash processing, strip the bracketing <>
-        #   DQUOTED    -- convert two characters to CONSTANT
-        #   SQUOTED    -- convert one character to CONSTANT
-        #   IDENTIFIER -- optionally enforce length8 truncation.
-
-        match tok_ID:
-            case TokenID.WHITESPACE:
-                # It seems desirable to use the re '\s' for WHITESPACE
-                # but that also matches \n, and newlines have semantic
-                # significance as they create a statement boundary.
-                # Easy solution here: if there is one or more newlines
-                # in the WHITESPACE, return a NEWLINE (one suffices
-                # regardlessof how many newlines are in there)
-                #
-                # Aside from that special case, WHITESPACE is otherwise
-                # ignored and never returned in the token stream.
-                if '\n' in value:
-                    return TokenID.NEWLINE, "\n"
-                else:
-                    return None, None
-            case TokenID.COMMENT:
-                return None, None
-            case TokenID.CONSTANT:
-                return TokenID.CONSTANT, self._intcvt(value)
-            case TokenID.STRING:
-                try:
-                    return TokenID.STRING, self.str_deslash(value[1:-1])
-                except ValueError:
-                    return TokenID.BAD, f"bad string: **{value[1:-1]}**"
-            case (TokenID.SQUOTED | TokenID.DQUOTED):
-                return TokenID.CONSTANT, self._intcvt(value)
-            case TokenID.IDENTIFIER:
-                if self.STRICT_ID8:
-                    return TokenID.IDENTIFIER, value[:8]
-
-        # if no special cases then return unchanged
-        return tok_ID, value
+    # STRING post-processing function (interfacer) for Tokenizer rules
+    @classmethod
+    def ppf_string(cls, trs, tokID, val):
+        try:
+            return tokID, cls.str_deslash(val[1:-1])
+        except ValueError:
+            return trs.TokenID.BAD, f"bad string: **{val[1:-1]}**"
 
     @staticmethod
     def __deslash1(s):
@@ -266,6 +145,51 @@ class ASMTokenizer:
                 place *= base
             return (v * sign) & 0xFFFF
 
+
+__rules = [
+    TokenMatch('WHITESPACE', r'\s+', TokenRuleSuite.ppf_keepnewline),
+    TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
+    TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
+    TokenMatch('CONSTANT', r'-?[0-9]+\.?', ASMTokenizer.ppf_constant),
+    TokenMatch('STRING', r'<>|(<[^<][^>]*>)', ASMTokenizer.ppf_string),
+    TokenMatch('LPAREN', r'\('),
+    TokenMatch('RPAREN', r'\)'),
+    TokenMatch('LBRA', r'\['),
+    TokenMatch('RBRA', r'\]'),
+    TokenMatch('EQ', r'='),
+    TokenMatch('PLUS', r'\+'),
+    TokenMatch('MINUS', r'-'),
+    TokenMatch('STAR', r'\*'),
+    TokenMatch('VSLASHES', r'\\/'),
+    TokenMatch('AMPERSAND', r'&'),
+    TokenMatch('BAR', r'\|'),
+    TokenMatch('RR', r'>>'),
+    TokenMatch('LL', r'<<'),
+    TokenMatch('PERCENT', r'%'),
+    TokenMatch('BANG', r'\!'),
+    TokenMatch('CARET', r'\^'),
+    TokenMatch('DOLLAR', r'\$'),
+    TokenMatch('COLON', r'\:'),
+    TokenMatch('SEMICOLON', r'\;'),
+    TokenMatch('SQUOTED', r"'((\\.)|.)", ASMTokenizer.ppf_constant),
+    TokenMatch('DQUOTED', r'\"((\\.)|.){2}', ASMTokenizer.ppf_constant),
+    TokenMatch('COMMENT', r'/[^\n]*', TokenRuleSuite.ppf_ignored),
+    TokenMatch('COMMA', r','),
+
+    # matches anything; MUST (obviously?) be the last re
+    TokenMatch('BAD', r'.'),
+
+    # but these can come after .. special tokens w/no 're' pattern
+    TokenMatch('NEWLINE', None),
+    TokenMatch('EOF', None)
+]
+
+_TRules = TokenRuleSuite(__rules)
+
+TokenID = _TRules.TokenID
+
+# some handy categories
+STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
 
 if __name__ == "__main__":
     import unittest

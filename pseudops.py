@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 from expression import XNode, Constant
-from astokens import TokenID
+from astokens import TokenID, STMT_ENDS
 
 
 class PseudoOp(XNode):
@@ -84,7 +84,7 @@ class PSIf(PseudoOp):
             return None
 
         # must not be any other gunk left in this statement
-        if not az._tk.peekif_IDmatches(TokenID.STMT_ENDS):
+        if not az._tk.peekif_IDmatches(STMT_ENDS):
             az.synerr_unexpected()
 
         # if the expression evaluates to true, .if is a no-op
@@ -127,7 +127,7 @@ class PSIf(PseudoOp):
                     endifs_needed -= 1
                 elif isinstance(node.value, PSIf) and at_stmt_boundary:
                     endifs_needed += 1
-            at_stmt_boundary = t.id in TokenID.STMT_ENDS
+            at_stmt_boundary = t.id in STMT_ENDS
         return None
 
 

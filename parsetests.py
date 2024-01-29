@@ -37,7 +37,7 @@ class TestMethods(unittest.TestCase):
 
     # just so don't have to fill in the extra args
     def _TK(self, tokenID, val=None):
-        return Token(tokenID, val, orig="test", location=(0, 0, 0))
+        return Token(tokenID, val, origin="test", location=(0, 0, 0))
 
     # convenience to check firstpass automatically
     def firstpass_and_check(self, az):

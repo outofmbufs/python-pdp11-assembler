@@ -31,7 +31,7 @@ import asx
 import opnodes
 import pseudops
 
-from astokens import Token, TokenID
+from astokens import Token, TokenID, STMT_ENDS
 from tokutil import TokStreamEnhancer
 from expression import XNode, Constant, Register, BinaryExpression
 from segment import Segment
@@ -72,8 +72,8 @@ class ASMParser:
         # for an implied token (NEWLINE in this case) at EOF which helps
         # because Unix v7 'as' treats an EOF *anywhere* as an implied newline.
         # Subclass (defined in this file) TokensPlus adds peekif_IDmatches().
-        NLtok = Token(TokenID.NEWLINE, "\n", "EOF")
-        EOFtok = Token.nulltok()
+        NLtok = Token(TokenID.NEWLINE, "\n", "EOF-induced-newline")
+        EOFtok = Token(TokenID.EOF, None, "EOF")
         self._tk = TokensPlus(tokens, lasttok=NLtok, eoftok=EOFtok)
 
     def firstpass(self):
@@ -256,7 +256,7 @@ class ASMParser:
         """Called at a statement boundary. Parse one statement."""
 
         # skip blank lines or statements (extra ';' are possible)
-        while self._tk.peekif_IDmatches(TokenID.STMT_ENDS):
+        while self._tk.peekif_IDmatches(STMT_ENDS):
             self._tk.gettok()
 
         if self._tk.at_eof():
@@ -643,11 +643,11 @@ class ASMParser:
 
     def end_of_statement(self):
         """Return True if at statement end; record syntax error if not."""
-        if self._tk.peekif_IDmatches(TokenID.STMT_ENDS):
+        if self._tk.peekif_IDmatches(STMT_ENDS):
             return True
         self.synerr_unexpected()
         # pick up parsing at next boundary
-        while not self._tk.peekif_IDmatches(TokenID.STMT_ENDS, eofmatch=True):
+        while not self._tk.peekif_IDmatches(STMT_ENDS, eofmatch=True):
             self._tk.gettok()
         return False
 
