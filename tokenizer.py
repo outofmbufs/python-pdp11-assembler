@@ -271,7 +271,7 @@ class Tokenizer:
                     if s[pos] != '\\':
                         lastslash = pos + 1
                         break
-                nslashes = (len(s) - 1) - lastslash 
+                nslashes = (len(s) - 1) - lastslash
                 print("NSLASHES ", nslashes)
                 # if it's odd then the \n is escaped
                 escaped = (nslashes % 2)
@@ -301,7 +301,6 @@ class Tokenizer:
 
         Optional keyword argument linenumber will be put into error messages.
         """
-
 
         # outer loop for looping over potential rules-changes mid-string.
         rulescheck = -1    # the point being: "is not" self.activerules
@@ -349,7 +348,8 @@ if __name__ == "__main__":
                 TokenMatch('C_NOTSTAR', r'[^*]+', TokenRuleSuite.ppf_ignored),
 
                 # */ ends the comment and returns to regular rules
-                TokenMatch('COMMENT_END', r'\*/', TokenRuleSuite.ppf_mainrules),
+                TokenMatch(
+                    'COMMENT_END', r'\*/', TokenRuleSuite.ppf_mainrules),
 
                 # when a star is seen that isn't */ this eats it
                 TokenMatch('C_STAR', r'\*', TokenRuleSuite.ppf_ignored),
@@ -374,14 +374,4 @@ if __name__ == "__main__":
                     for name, t in zip(expected, toks):
                         self.assertEqual(trs.TokenID[name], t.id)
 
-            foo = """
-                    ("{{/* * / * */",
-                     ['LBRACE', 'LBRACE', 'COMMENT_START', 'COMMENT_END']),
-                    ("{ {/* * / * */",
-                     ['LBRACE', 'BAD', 'LBRACE',
-                      'COMMENT_START', 'COMMENT_END']),
-            """
-
-
     unittest.main()
-
