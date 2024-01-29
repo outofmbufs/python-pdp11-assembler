@@ -46,8 +46,7 @@ class TokStreamEnhancer:
         and no StopIteration exception will ever be raised.
 
         If no eoftok is supplied, StopIteration will be raised once the
-        end of the tokstreams has been reached AND their are no pushbacks
-        remaining to consume.
+        end of the tokstreams has been reached AND no pushbacks remain.
         """
 
         if lasttok is not None:
