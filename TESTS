@@ -1,18 +1,26 @@
 #!/bin/sh
 
 FAILS=""
-TESTFILES="tokutil.py astokens.py expression.py segment.py parsetests.py"
+TESTFILES="tokutil.py tokenizer.py astokens.py expression.py segment.py parsetests.py"
+
+COUNT_GOOD=0
+COUNT_BAD=0
 
 for TEST in $TESTFILES
 do
     echo "Testing $TEST"
     python3 $TEST
-    if [ $? -ne 0 ]
+    if [ $? -eq 0 ]
     then
+	COUNT_GOOD=`expr $COUNT_GOOD + 1`
+    else
 	echo TEST $TEST failed
 	FAILS="$TEST $FAILS"
+	COUNT_BAD=`expr $COUNT_BAD + 1`
     fi
 done
+
+echo RESULTS: $COUNT_GOOD passed, $COUNT_BAD failed.
 
 if [ x"$FAILS" != x ]
 then
