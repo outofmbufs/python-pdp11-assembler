@@ -137,3 +137,6 @@ A .boundary statement will round the origin up to the next given boundary:
 
 ## About that BSS segment
 The BSS segment, of course, requires run-time support to initialize the entire range of it to zero, or else it has to be represented as explicit zeros in the output file. This implementation does the latter, as it is meant primarily for use in bare-metal programming. If you are already programming for the unix runtime environment, use the unix v7 tool chain!
+
+# GENERIC Tokenizer class
+The file tokenizer.py is a generic regexp-based tokenizer that may be useful on its own (it is not specific to the assembler). See how it is used in astokens.py (e.g., how the rules are set up) and also see the file itself for further documentation.
