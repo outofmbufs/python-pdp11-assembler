@@ -75,12 +75,6 @@ TokenID = Enum('TokenID', [t for t, r in token_specs] + _othertokens)
 # some handy categories
 TokenID.STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
 
-# symbols that are legal in expressions
-TokenID.EXPR_SYM = {
-    TokenID.IDENTIFIER, TokenID.CONSTANT,   # these two are obvious
-    TokenID.TEMPLABREF,                     # same as a label ref
-}
-
 
 # where a given token was found; solely for syntax error reporting
 @dataclass(frozen=True)
@@ -139,6 +133,7 @@ class ASMTokenizer:
         self.startnum = startnum
         if id8:
             self.STRICT_ID8 = True
+        self.tok_re = '|'.join(f'(?P<{tn}>{x})' for tn, x in token_specs)
 
     def tokens(self):
         """GENERATE tokens for the entire file."""
@@ -154,8 +149,7 @@ class ASMTokenizer:
 
         Optional keyword argument linenumber will be put into error messages.
         """
-        tok_re = '|'.join(f'(?P<{tn}>{x})' for tn, x in token_specs)
-        for mo in re.finditer(tok_re, s):
+        for mo in re.finditer(self.tok_re, s):
             tok_ID, value = self._tokmods(TokenID[mo.lastgroup], mo.group())
             if tok_ID is not None:   # None means ignore this token
                 loc = TokLoc(name, linenumber, mo.start(), mo.end())
