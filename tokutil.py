@@ -120,7 +120,7 @@ class TokStreamEnhancer:
             if bulk:     # it could be zero-len
                 self._pushedback = bulk + self._pushedback
         else:
-            raise TypeError("internal error: tok and bulk")
+            raise TypeError("called with BOTH tok and bulk")
 
     # tokmark is a WITH statement context manager.
     # It sets a 'mark' in the token stream and automatically ungets
