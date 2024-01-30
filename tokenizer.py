@@ -65,8 +65,9 @@ Token = namedtuple('Token',
 
 class TokenRuleSuite:
     DEFAULT_NAME = '*'
+    ALT_NAME = 'ALT'
 
-    def __init__(self, tms, /):
+    def __init__(self, tms, /, *, tokenIDs=None):
         """Collect TokenMatch objects together for a tokenizer.
 
         Argument is either a sequence (e.g., list) of TokenMatch
@@ -88,12 +89,20 @@ class TokenRuleSuite:
             # it wasn't a dict so make it one.
             tms = {self.DEFAULT_NAME: tms}
 
-        # collect all the tokennames from all the TokenMatch objects
-        # NOTE: weed out duplicates (using set()); dups are allowable
-        #       when there are multiple context-dependent TokenMatch lists
-        toknames = set(r.tokname for mx in tms.values() for r in mx)
-
-        self.TokenID = Enum('TokenID', sorted(toknames))
+        # In the standard usage scenarios, tokenIDs should be left None
+        # and this code will create the Enum for token IDs automatically:
+        if tokenIDs is None:
+            # collect all the tokennames from all the TokenMatch objects
+            # NOTE: weed out duplicates (using set()); dups are allowable
+            #       when there are multiple context-dependent TokenMatch lists
+            toknames = set(r.tokname for mx in tms.values() for r in mx)
+            self.TokenID = Enum('TokenID', sorted(toknames))
+        else:
+            # for some reason caller desired to supply the TokenID mapping.
+            # It doesn't actually have to be an Enum, but it does have
+            # to be a mapping that will accept any tokname from any
+            # of the supplied TokenMatch objects.
+            self.TokenID = tokenIDs
 
         # each named rule set needs its own pre-computed re, ppf, etc.
         RuleInfo = namedtuple('RuleInfo', ['rx', 'ppfmap'])
@@ -166,6 +175,8 @@ class TokenRuleSuite:
     #
     #   ppf_ignored: "ignore this when seen" ppf.
     #
+    #   ppf_int: simply calls "int()" on the value string.
+    #
     #   ppf_altrules: "switch in alternate rules" ppf
     #
     #   ppf_mainrules: "go back to main (default) rules" ppf
@@ -189,8 +200,12 @@ class TokenRuleSuite:
         return None, None
 
     @staticmethod
-    def ppf_altrules(trs, tokID, val, altrules='ALT'):
-        """Switch to an alternate set of rules (default ALT)."""
+    def ppf_int(trs, id, val):
+        return id, int(val)
+
+    @staticmethod
+    def ppf_altrules(trs, tokID, val, altrules=ALT_NAME):
+        """Switch to an alternate set of rules"""
         trs.activate(altrules)
         return tokID, val
 
@@ -203,18 +218,21 @@ class TokenRuleSuite:
 class Tokenizer:
     """Break streams into tokens with rules from regexps and callbacks."""
 
+    _NOTGIVEN = object()
+
     def __init__(self, trs, strings, /, *,
-                 srcname=None, startnum=1):
+                 srcname=None, startnum=_NOTGIVEN):
         """Set up a Tokenizer; see tokens() to generate tokens.
 
         Arguments:
            trs      -- A TokenRuleSuite object
 
-           strings  -- should be an iterable of strings. Most commonly
-                       it is an open text file. Anything that duck-types:
+           strings  -- should be an iterable of strings. Can be None.
+                       Most commonly it is an open text file, and it
+                       gets used like this:
                           for s in strings:
                               ... tokenize s ...
-                       is acceptable here.
+                       so anything duck-typing as iterable of str works.
 
            **NOTE** :: A TokenMatch will not find a match ACROSS a string
                        boundary. Said differently: Every Token must lie
@@ -235,6 +253,8 @@ class Tokenizer:
 
         self.strings = strings
         self.trs = trs
+        if startnum is self._NOTGIVEN:
+            startnum = 1
         self.startnum = startnum
         self.srcname = srcname
 
@@ -250,6 +270,7 @@ class Tokenizer:
     # at some point of complexity the entire idea of "regexp from a line"
     # will break down if the lexical requirements are too complex.
     #
+    @staticmethod
     def linefilter(strings, preservelinecount=True):
         """Implement backslash-newline escapes.
 
@@ -265,14 +286,12 @@ class Tokenizer:
 
             escaped = False
             if s.endswith('\\\n'):
-                print("ENDS WITH")
                 lastslash = 0
                 for pos in range(len(s)-3, -1, -1):
                     if s[pos] != '\\':
                         lastslash = pos + 1
                         break
                 nslashes = (len(s) - 1) - lastslash
-                print("NSLASHES ", nslashes)
                 # if it's odd then the \n is escaped
                 escaped = (nslashes % 2)
                 if escaped:
@@ -286,8 +305,19 @@ class Tokenizer:
             yield prev
         yield from makeups
 
-    def tokens(self):
-        """GENERATE tokens for the entire file."""
+    def tokens(self, strings=None, /, *,
+               srcname=_NOTGIVEN, startnum=_NOTGIVEN):
+        """GENERATE tokens for the entire file.
+
+        strings/srcname/startnum arguments same as for __init__().
+        """
+        if strings is not None:
+            self.strings = strings
+        if srcname is not self._NOTGIVEN:
+            self.srcname = srcname
+        if startnum is not self._NOTGIVEN:
+            self.startnum = startnum
+
         if self.startnum is None:         # no line numbers
             g = ((None, s) for s in self.strings)
         else:
