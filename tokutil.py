@@ -59,10 +59,42 @@ class TokStreamEnhancer:
         self._markedtoks = None                # for unwinding tokens
         self._unmarkctx = None                 # for unwinding tokens
 
+    def __unget_invalid_after_iter(self, *arg, **kwargs):
+        raise TypeError("ungettok is not legal after __iter__ usage")
+
+    def __iter__(self):
+        """Using iterator protocol on TokStreamEnhancer is somewhat silly.
+        Nevertheless, here it is. There are two important restrictions:
+           1) eoftok must be None
+           2) ungettok can not be used.
+        See comments in code for details.
+        """
+
+        # eoftok semantics and __iter__ protocol clash; one prevents
+        # StopIteration and the other requires it. If what was desired
+        # was for one special token to appear at the end of the iteration
+        # then lasttok should be used instead.
+        if self._eoftok is not None:
+            raise TypeError("cannot __iter__ with an eoftok present")
+
+        # The other restriction is: no ungettok. This is because
+        # the Python documentation for iterator protocol says:
+        #    Once an iterator’s __next__() method raises StopIteration,
+        #    it must continue to do so on subsequent calls. Implementations
+        #    that do not obey this property are deemed broken.
+        self.ungettok = self.__unget_invalid_after_iter   # crude; effective
+        return self
+
+    def __next__(self):
+        if self._pushedback:
+            return self._pushedback.pop(0)
+        return next(self._tokens)
+
     # token peek/get .. everything is built on top of peektoks() which
     # ensures there are at least N tokens on the _pushedback queue.
     def peektoks(self, n):
         """Return a LIST of n tokens, WITHOUT consuming them."""
+
         while len(self._pushedback) < n:
             try:
                 t = next(self._tokens)
@@ -362,5 +394,16 @@ if __name__ == "__main__":
             self.assertEqual(t4, t1)
             self.assertEqual(foo.gettok(), t2)
             self.assertEqual(foo.gettok(), t3)
+
+        def test_iter(self):
+            foo = TokStreamEnhancer(iter((1,)), iter((2,)), iter((3, 4, 5)))
+            for i, t in enumerate(foo):
+                self.assertEqual(i+1, t)
+
+        def test_iter_unget(self):
+            foo = TokStreamEnhancer(iter((1,)), iter((2,)), iter((3, 4, 5)))
+            for t in foo:
+                with self.assertRaises(TypeError):
+                    foo.ungettok(t)
 
     unittest.main()

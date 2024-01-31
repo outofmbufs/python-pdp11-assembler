@@ -305,6 +305,11 @@ class Tokenizer:
             yield prev
         yield from makeups
 
+    # Iterating over a Tokenizer is the same as iterating over
+    # the tokens() method, but without the ability to specify other args.
+    def __iter__(self):
+        return self.tokens()
+
     def tokens(self, strings=None, /, *,
                srcname=_NOTGIVEN, startnum=_NOTGIVEN):
         """GENERATE tokens for the entire file.
@@ -360,6 +365,48 @@ if __name__ == "__main__":
     import unittest
 
     class TestMethods(unittest.TestCase):
+
+        def test1(self):
+            # example adapted from README.md on github
+            rules = [
+                TokenMatch('WHITESPACE', r'\s+',
+                           TokenRuleSuite.ppf_keepnewline),
+                TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
+                TokenMatch('CONSTANT', r'-?[0-9]+', TokenRuleSuite.ppf_int),
+                TokenMatch('NEWLINE', None)
+            ]
+
+            rule_suite = TokenRuleSuite(rules)
+
+            s = "    abc123 def    ghi_jkl     123456\n"
+            tkz = Tokenizer(rule_suite, [s])
+            expected_IDvals = [
+                (rule_suite.TokenID.IDENTIFIER, 'abc123'),
+                (rule_suite.TokenID.IDENTIFIER, 'def'),
+                (rule_suite.TokenID.IDENTIFIER, 'ghi_jkl'),
+                (rule_suite.TokenID.CONSTANT, 123456),
+                (rule_suite.TokenID.NEWLINE, '\n')
+            ]
+
+            for x, t in zip(expected_IDvals, tkz.tokens()):
+                id, val = x
+                self.assertEqual(t.id, id)
+                self.assertEqual(t.value, val)
+
+        def test_iter(self):
+            rules = [TokenMatch('A', 'a'),
+                     TokenMatch('B', 'b')]
+            rule_suite = TokenRuleSuite(rules)
+            tkz = Tokenizer(rule_suite, ["ab", "ba"])
+            expected = [
+                rule_suite.TokenID.A,
+                rule_suite.TokenID.B,
+                rule_suite.TokenID.B,
+                rule_suite.TokenID.A,
+            ]
+
+            for id, t in zip(expected, Tokenizer(rule_suite, ["ab", "ba"])):
+                self.assertEqual(id, t.id)
 
         # C comment example
         def test_C(self):
