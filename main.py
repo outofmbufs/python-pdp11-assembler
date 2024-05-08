@@ -97,7 +97,7 @@ def cmd_main():
     # each input file becomes a separate ASMTokenizer (vs., e.g.,
     # chaining the strings from multiple files into one ASMTokenizer)
     tokenizers = [
-        ASMTokenizer(info.f, name=info.name, id8=args.strictv7).tokens()
+        ASMTokenizer(info.f, srcname=info.name, id8=args.strictv7).tokens()
         for info in args.inputs]
 
     az = ASMParser(itertools.chain(*tokenizers))
