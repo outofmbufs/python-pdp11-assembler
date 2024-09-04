@@ -13,9 +13,7 @@ import re
 #    TokenMatch        Object encapsulating a basic regexp rule.
 #    ... subclasses    Various subclasses of TokenMatch for special functions
 #
-#    TokenRuleSuite    Collection of TokenMatch objects, optionally
-#                      grouped into named context-dependent rulesets.
-#    Tokenizer         The engine driven by a TokenRuleSuite.
+#    Tokenizer         Built from rulesets (of TokenMatch objects).
 #
 #    Token             The Tokenizer produces these.
 #    TokenID           An Enum type dynamically created by the TokenRuleSuite
@@ -24,7 +22,8 @@ import re
 
 
 # basic information about a regexp match
-MatchedInfo = namedtuple('MatchedInfo', ['tokname', 'value', 'start', 'stop'])
+MatchedInfo = namedtuple(
+    'MatchedInfo', ['tokname', 'value', 'start', 'stop', 'tokenizer'])
 
 
 # A TokenMatch combines a name (e.g., 'CONSTANT') with a regular
@@ -41,7 +40,7 @@ class TokenMatch:
     # overriding). 'minfo' is a MatchedInfo and the matched()
     # method can alter it accordingly; in this base implementation
     # it is just returned unchanged.
-    def matched(self, minfo, /, *, rulesuite):
+    def matched(self, minfo, /):
         """Return a MatchedInfo based on the one given."""
         return minfo
 
@@ -49,7 +48,7 @@ class TokenMatch:
 class TokenMatchIgnore(TokenMatch):
     """TokenMatch that eats tokens (i.e., matches and ignores them)."""
 
-    def matched(self, minfo, /, *, rulesuite):
+    def matched(self, minfo, /):
         """Cause this token to be ignored."""
 
         return minfo._replace(tokname=None)  # tokname=None means "ignore"
@@ -71,7 +70,7 @@ class TokenMatchConvert(TokenMatch):
         self.converter = converter
         self.alt_tokname = alt_tokname
 
-    def matched(self, minfo, /, *, rulesuite):
+    def matched(self, minfo, /):
         """Convert the value in this token (from string)."""
         replacements = {'value': self.converter(minfo.value)}
         if self.alt_tokname is not None:
@@ -87,7 +86,7 @@ class TokenMatchInt(TokenMatchConvert):
 
 
 class TokenMatchIgnoreWhiteSpaceKeepNewline(TokenMatch):
-    def matched(self, minfo, /, *, rulesuite):
+    def matched(self, minfo, /):
         if '\n' in minfo.value:
             return minfo._replace(value="\n")
         else:
@@ -95,22 +94,12 @@ class TokenMatchIgnoreWhiteSpaceKeepNewline(TokenMatch):
 
 
 class TokenMatchRuleSwitch(TokenMatch):
-    def __init__(self, *args, new_rulename=None, **kwargs):
+    def __init__(self, *args, new_rulename="_next", **kwargs):
         super().__init__(*args, **kwargs)
         self.new_rulename = new_rulename
 
-    def matched(self, minfo, /, *, rulesuite):
-        # Switch to the new ruleset; note that None means switch to
-        # the "next" ruleset (wrapping around from last to first). The None
-        # style is particularly convenient for swapping back and forth
-        # between a main ruleset and one alternate (if there are only two)
-        if self.new_rulename is None:
-            rulenames = list(rulesuite.rules)
-            current = rulenames.index(rulesuite.active_rulename)
-            nextindex = (current + 1) % len(rulenames)
-            rulesuite.active_rulename = rulenames[nextindex]
-        else:
-            rulesuite.active_rulename = self.new_rulename
+    def matched(self, minfo, /):
+        minfo.tokenizer.activate_ruleset(self.new_rulename)
         return minfo
 
 
@@ -130,32 +119,45 @@ Token = namedtuple('Token',
                    defaults=[None, None, TokLoc()])
 
 
-# A TokenRuleSuite is a collection of TokenMatch objects that will be
-# used to create/drive a Tokenizer.
-#
-# In the simplest form, a TokenRuleSuite is initialized from a sequence
-# of TokenMatch objects. They form the total set of match rules.
-# This is also where the TokenID Enum is created, from the union of
-# token names in all of the match rules in the suite.
-#
-# To handle context-dependent tokenizing rules, a suite can have multiple
-# named groups of rules, and processing functions can switch among them.
-# In that case the TokenRuleSuite is initialized from a dictionary
-# of lists of TokenMatch objects.
-#
+class Tokenizer:
+    """Break streams into tokens with rules from regexps and callbacks."""
 
-class TokenRuleSuite:
-    def __init__(self, tms, /, *, tokenIDs=None):
-        """Collect TokenMatch objects together for a tokenizer.
+    _NOTGIVEN = object()
 
-        Argument is either a sequence (e.g., list) of TokenMatch
+    def __init__(self, tms, strings=None, /, *,
+                 srcname=None, startnum=_NOTGIVEN,
+                 tokenIDs=None):
+        """Set up a Tokenizer; see tokens() to generate tokens.
 
-        objects (simplest case) or a mapping (e.g., dict) of sequences
-        of TokenMatch objects (modal/context-dependent case).
+        Arguments:
+           tms      -- Either a sequence of TokenMatch objects or a mapping
+                       of names to such sequences.
 
-        If specifying a mapping, note that None must be a valid key.
-        It denotes the default/initial TokenMatch sequence.
-        All other key names can be arbitrary.
+           strings  -- should be an iterable of strings. Can be None.
+                       Most commonly it is an open text file, and it
+                       gets used like this:
+                          for s in strings:
+                              ... tokenize s ...
+                       so anything duck-typing as iterable of str works.
+
+           **NOTE** :: A TokenMatch will not find a match ACROSS a string
+                       boundary. Said differently: Every Token must lie
+                       within a single string. Typically this is a non-issue
+                       when each string is a line in a file but it could be
+                       a problem if the strings are arbitrary chunks of some
+                       larger source. See also: Tokenizer.linefilter
+
+           srcname  -- for error reporting, but otherwise ignored.
+                       Usually should be specified as the input file name.
+                       This eventually goes into the TokLocs as "source"
+
+           startnum -- for error reporting, but otherwise ignored.
+                       Each string in strings is assumed to be a separate
+                       line and will be numbered starting from this number.
+                       Default is 1. If None, line numbers left out.
+
+           tokenIDs -- If caller doesn't want the TokenID Enum created
+                       automatically, it can be provided here.
         """
 
         # Internally, always use a mapping so convert if needed.
@@ -173,6 +175,10 @@ class TokenRuleSuite:
         # rule sets cannot be zero-length
         if any([len(x) == 0 for x in tmsmap.values()]):
             raise ValueError("zero-length ruleset(s)")
+
+        # duplicate names in any single group of TokenMatch objects can cause
+        # truly head-scratching bugs so check for it
+        # XXX TBD TBD TBD XXX
 
         # In the standard usage scenarios, tokenIDs should be left None
         # and this code will create the Enum for token IDs automatically:
@@ -202,97 +208,29 @@ class TokenRuleSuite:
             for k, tms in tmsmap.items()
         }
 
-        self.active_rulename = None          # default rule 'name' is: None
-
-    def run(self, s):
-        """Run the TokenRules on string 's', yield MatchInfo's."""
-
-        rules = None
-        so_far = 0
-
-        # Note that TokenMatch objects can cause a rulename change
-        # so the loop is written this way to accommodate that.
-        while True:
-            if self.rules[self.active_rulename] != rules:
-                rules = self.rules[self.active_rulename]
-                g = re.finditer(rules.rx, s[so_far:])
-                baseoffset = so_far
-            try:
-                mobj = next(g)
-            except StopIteration:
-                break
-
-            so_far = mobj.end() + baseoffset   # end of processed chars
-            minfo = MatchedInfo(
-                tokname=mobj.lastgroup,
-                value=mobj.group(0),
-                start=mobj.start()+baseoffset,
-                stop=so_far)
-
-            yield rules.name2tms[minfo.tokname].matched(minfo, rulesuite=self)
-
-
-class Tokenizer:
-    """Break streams into tokens with rules from regexps and callbacks."""
-
-    _NOTGIVEN = object()
-
-    def __init__(self, trs, strings=None, /, *,
-                 srcname=None, startnum=_NOTGIVEN):
-        """Set up a Tokenizer; see tokens() to generate tokens.
-
-        Arguments:
-           trs      -- A TokenRuleSuite object
-
-           strings  -- should be an iterable of strings. Can be None.
-                       Most commonly it is an open text file, and it
-                       gets used like this:
-                          for s in strings:
-                              ... tokenize s ...
-                       so anything duck-typing as iterable of str works.
-
-           **NOTE** :: A TokenMatch will not find a match ACROSS a string
-                       boundary. Said differently: Every Token must lie
-                       within a single string. Typically this is a non-issue
-                       when each string is a line in a file but it could be
-                       a problem if the strings are arbitrary chunks of some
-                       larger source. See also: Tokenizer.linefilter
-
-           srcname  -- for error reporting, but otherwise ignored.
-                       Usually should be specified as the input file name.
-                       This eventually goes into the TokLocs as "source"
-
-           startnum -- for error reporting, but otherwise ignored.
-                       Each string in strings is assumed to be a separate
-                       line and will be numbered starting from this number.
-                       Default is 1. If None, line numbers left out.
-        """
-
-        # This is probably being too lenient, but: allow trs to be a direct
-        # list of TokenMatch objects (instead of a TokenRuleSuite) and convert
-        # it accordingly if so. 'TokenID' attribute and 'run' method are
-        # the duck-typing requirement for the TokenRuleSuite.
-        if not (hasattr(trs, 'TokenID') and hasattr(trs, 'run')):
-            try:
-                trs = TokenRuleSuite(trs)
-            except (AttributeError, TypeError):
-                msg = "trs not a TokenRuleSuite and can't be converted"
-                raise TypeError(msg) from None
-
         self.strings = strings
-        self.trs = trs
+        self.active_rulesname = None
         if startnum is self._NOTGIVEN:
             startnum = 1
         self.startnum = startnum
         self.srcname = srcname
 
+    def activate_ruleset(self, newrule):
+        if newrule == "_next":      # means 'go to next rule'
+            rulenames = list(self.rules)
+            current = rulenames.index(self.active_rulesname)
+            nextindex = (current + 1) % len(rulenames)
+            self.active_rulesname = rulenames[nextindex]
+        else:
+            self.active_rulesname = newrule
+
     # convenience for use in case where strings that end with two
     # character sequence "backslash newline" should be combined with
     # the newline (and backslash) elided. Example of use:
     #
-    #     trs = TokenRuleSuite(blah blah)
+    #     rules = [ blah blah blah ]
     #     f = open('foo.c', 'r')
-    #     tz = Tokenizer(trs, Tokenizer.linefilter(f))
+    #     tz = Tokenizer(rules, Tokenizer.linefilter(f))
     #
     # this allows tokenizing to span "lines" (escaped lines). Note that
     # at some point of complexity the entire idea of "regexp from a line"
@@ -366,13 +304,13 @@ class Tokenizer:
         """
 
         expected_next_pos = 0    # to catch unmatched characters
-        for minfo in self.trs.run(s):
+        for minfo in self.run(s):
             # make sure this match starts at the next expected character
             if minfo.start != expected_next_pos:
                 break
             expected_next_pos = minfo.stop
             try:
-                id = self.trs.TokenID[minfo.tokname]
+                id = self.TokenID[minfo.tokname]
             except KeyError:
                 pass
             else:
@@ -383,6 +321,34 @@ class Tokenizer:
         # was something not matched along the way (or at the end)
         if expected_next_pos != len(s):
             raise ValueError(f"unmatched @{expected_next_pos}, {s=}")
+
+    def run(self, s):
+        """Run the TokenRules on string 's', yield MatchInfo's."""
+
+        so_far = 0
+        rules = None
+
+        # Note that TokenMatch objects can cause active_rulesname to change
+        # so the loop is written this way to accommodate that.
+        while True:
+            if rules is not self.rules[self.active_rulesname]:
+                rules = self.rules[self.active_rulesname]
+                g = re.finditer(rules.rx, s[so_far:])
+                baseoffset = so_far
+            try:
+                mobj = next(g)
+            except StopIteration:
+                break
+
+            so_far = mobj.end() + baseoffset   # end of processed chars
+            minfo = MatchedInfo(
+                tokname=mobj.lastgroup,
+                value=mobj.group(0),
+                start=mobj.start()+baseoffset,
+                stop=so_far,
+                tokenizer=self)
+
+            yield rules.name2tms[minfo.tokname].matched(minfo)
 
 
 if __name__ == "__main__":
@@ -398,16 +364,14 @@ if __name__ == "__main__":
                 TokenMatchInt('CONSTANT', r'-?[0-9]+'),
             ]
 
-            rule_suite = TokenRuleSuite(rules)
-
             s = "    abc123 def    ghi_jkl     123456\n"
-            tkz = Tokenizer(rule_suite, [s])
+            tkz = Tokenizer(rules, [s])
             expected_IDvals = [
-                (rule_suite.TokenID.IDENTIFIER, 'abc123'),
-                (rule_suite.TokenID.IDENTIFIER, 'def'),
-                (rule_suite.TokenID.IDENTIFIER, 'ghi_jkl'),
-                (rule_suite.TokenID.CONSTANT, 123456),
-                (rule_suite.TokenID.NEWLINE, '\n')
+                (tkz.TokenID.IDENTIFIER, 'abc123'),
+                (tkz.TokenID.IDENTIFIER, 'def'),
+                (tkz.TokenID.IDENTIFIER, 'ghi_jkl'),
+                (tkz.TokenID.CONSTANT, 123456),
+                (tkz.TokenID.NEWLINE, '\n')
             ]
 
             for x, t in zip(expected_IDvals, tkz.tokens()):
@@ -418,16 +382,15 @@ if __name__ == "__main__":
         def test_iter(self):
             rules = [TokenMatch('A', 'a'),
                      TokenMatch('B', 'b')]
-            rule_suite = TokenRuleSuite(rules)
-            tkz = Tokenizer(rule_suite, ["ab", "ba"])
+            tkz = Tokenizer(rules, ["ab", "ba"])
             expected = [
-                rule_suite.TokenID.A,
-                rule_suite.TokenID.B,
-                rule_suite.TokenID.B,
-                rule_suite.TokenID.A,
+                tkz.TokenID.A,
+                tkz.TokenID.B,
+                tkz.TokenID.B,
+                tkz.TokenID.A,
             ]
 
-            for id, t in zip(expected, Tokenizer(rule_suite, ["ab", "ba"])):
+            for id, t in zip(expected, tkz):
                 self.assertEqual(id, t.id)
 
         # C comment example
@@ -452,10 +415,11 @@ if __name__ == "__main__":
                 TokenMatchIgnore('C_STAR', r'\*'),
             ]
 
-            trs = TokenRuleSuite(
-                {None: rules, 'ALT': altrules})
-
             for sx, expected in (
+                    (["abc/*", "def*/"],
+                     ['IDENTIFIER', 'COMMENT_START', 'COMMENT_END']),
+                     ):
+                foo = """
                     (["/**/"], ['COMMENT_START', 'COMMENT_END']),
                     (["{/**/}"],
                      ['LBRACE', 'COMMENT_START', 'COMMENT_END', 'RBRACE']),
@@ -474,47 +438,45 @@ if __name__ == "__main__":
                       "here is the end of the comment: */",
                       "BUT_THIS_IS_AN_IDENTIFIER"],
                      ['COMMENT_START', 'COMMENT_END', 'IDENTIFIER']),
-
                     ):
-                tkz = Tokenizer(trs, sx)
+                """
+                tkz = Tokenizer({None: rules, 'ALT': altrules}, sx)
                 toks = list(tkz.tokens())
                 with self.subTest(sx=sx):
                     for name, t in zip(expected, toks):
-                        self.assertEqual(trs.TokenID[name], t.id)
+                        self.assertEqual(tkz.TokenID[name], t.id)
 
         # Example of multiple rule sets from README
         def test_ruleswitch(self):
 
-            switcher = TokenMatchRuleSwitch('SWITCH', r'/')
             group1 = [
                 TokenMatch('ZEE', r'z'),
-                TokenMatchRuleSwitch('ALTRULES', r'/', new_rulename='ALT')
+                TokenMatchRuleSwitch('ALTRULES', r'/@/', new_rulename='ALT')
             ]
 
             group2 = [
                 TokenMatch('ZED', r'z'),
-                TokenMatchRuleSwitch('MAINRULES', r'/', new_rulename=None)
+                TokenMatchRuleSwitch('MAINRULES', r'/@/', new_rulename=None)
             ]
 
             rules = {None: group1, 'ALT': group2}
-            rule_suite = TokenRuleSuite(rules)
+            tkz = Tokenizer(rules)
             expected = (
-                rule_suite.TokenID.ZEE,
-                rule_suite.TokenID.ZEE,
-                rule_suite.TokenID.ALTRULES,
-                rule_suite.TokenID.ZED,
-                rule_suite.TokenID.MAINRULES,
-                rule_suite.TokenID.ZEE,
+                tkz.TokenID.ZEE,
+                tkz.TokenID.ZEE,
+                tkz.TokenID.ALTRULES,
+                tkz.TokenID.ZED,
+                tkz.TokenID.MAINRULES,
+                tkz.TokenID.ZEE,
             )
 
-            tkz = Tokenizer(rule_suite, None)
-            for token, ex in zip(tkz.string_to_tokens('zz/z/z'), expected):
+            for token, ex in zip(tkz.string_to_tokens('zz/@/z/@/z'), expected):
                 self.assertEqual(token.id, ex)
-                if ex in (rule_suite.TokenID.ZEE, rule_suite.TokenID.ZED):
+                if ex in (tkz.TokenID.ZEE, tkz.TokenID.ZED):
                     self.assertEqual(token.value, 'z')
-                elif ex in (rule_suite.TokenID.ALTRULES,
-                            rule_suite.TokenID.MAINRULES):
-                    self.assertEqual(token.value, '/')
+                elif ex in (tkz.TokenID.ALTRULES,
+                            tkz.TokenID.MAINRULES):
+                    self.assertEqual(token.value, '/@/')
                 else:
                     self.assertTrue(False)
 
