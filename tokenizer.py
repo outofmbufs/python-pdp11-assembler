@@ -10,20 +10,21 @@ import re
 # and so is useful for lexing when a line-by-line/regexp model works.
 #
 # The basics are:
-#    TokenMatch        Object encapsulating a basic regexp rule.
-#    ... subclasses    Various subclasses of TokenMatch for special functions
+#    Tokenizer        Main object. Built from rulesets of TokenMatch objects.
 #
-#    Tokenizer         Built from rulesets (of TokenMatch objects).
+#    TokenMatch       Object encapsulating a basic regexp rule.
+#    ... subclasses   Various subclasses of TokenMatch for special functions
 #
-#    Token             The Tokenizer produces these.
-#    TokenID           An Enum type dynamically created by the TokenRuleSuite
-#                      from all of the TokenMatch specifications; this is the
-#                      type of each individual Token (i.e., what it matched)
+#    Token            The Tokenizer produces these.
+#    TokenID          An Enum type dynamically created by the Tokenizer
+#                     from all of the TokenMatch specifications; this is the
+#                     type of each individual Token (i.e., what it matched)
 
 
-# basic information about a regexp match
-MatchedInfo = namedtuple(
-    'MatchedInfo', ['tokname', 'value', 'start', 'stop', 'tokenizer'])
+# A _MatchedInfo is created by the Tokenizer from each regexp match, and
+# passed to the corresponding TokenMatch.matched() for further processing.
+_MatchedInfo = namedtuple(
+    '_MatchedInfo', ['tokname', 'value', 'start', 'stop', 'tokenizer'])
 
 
 # A TokenMatch combines a name (e.g., 'CONSTANT') with a regular
@@ -35,13 +36,10 @@ class TokenMatch:
         self.tokname = tokname
         self.regexp = regexp
 
-    # Called when the regexp matches an input. This is where
-    # token-specific post processing can happen (by subclasses
-    # overriding). 'minfo' is a MatchedInfo and the matched()
-    # method can alter it accordingly; in this base implementation
-    # it is just returned unchanged.
+    # Token-specific post processing on a match. This is a no-op; subclasses
+    # will typically override with token-specific conversions/actions.
     def matched(self, minfo, /):
-        """Return a MatchedInfo based on the one given."""
+        """Return a _MatchedInfo based on the one given."""
         return minfo
 
 
@@ -50,7 +48,6 @@ class TokenMatchIgnore(TokenMatch):
 
     def matched(self, minfo, /):
         """Cause this token to be ignored."""
-
         return minfo._replace(tokname=None)  # tokname=None means "ignore"
 
 
@@ -63,8 +60,7 @@ class TokenMatchConvert(TokenMatch):
 
         Keyword arguments:
              converter:    will be applied to convert .value
-             alt_tokname:  if specified, changes the tokname (see README
-                           for discussion of why this can be useful)
+             alt_tokname:  if specified, changes the tokname (see README)
         """
         super().__init__(*args, **kwargs)
         self.converter = converter
@@ -110,17 +106,16 @@ TokLoc = namedtuple('TokLoc',
                     defaults=["unknown", None, 0, 0])
 
 
-# A Token has a TokenID, a value (initially: the string match, but the
-# post-processing function can alter that), an "origin" which is the full
-# string (usually an entire line) containing the token and a TokLoc for
-# more details on match location.
+# A Token has a TokenID, a value, an "origin" which is the full string
+# (usually an entire line) containing the token and a TokLoc for more
+# details on match location.
 Token = namedtuple('Token',
                    ['id', 'value', 'origin', 'location'],
                    defaults=[None, None, TokLoc()])
 
 
 class Tokenizer:
-    """Break streams into tokens with rules from regexps and callbacks."""
+    """Break streams into tokens with rules from regexps."""
 
     _NOTGIVEN = object()
 
@@ -160,40 +155,8 @@ class Tokenizer:
                        automatically, it can be provided here.
         """
 
-        # Internally, always use a mapping so convert if needed.
-        try:
-            _ = tms[None]                # test it for dict-ness
-            tmsmap = tms                 # it's already a proper mapping
-        except KeyError:
-            msg = f"TokenMatch mapping has no default ([None]) entry"
-            raise ValueError(msg) from None
-        except TypeError:
-            # There's just one named ruleset and it was given as
-            # an iterable of TokenMatch objects; convert to mapping
-            tmsmap = {None: tms}
-
-        # rule sets cannot be zero-length
-        if any([len(x) == 0 for x in tmsmap.values()]):
-            raise ValueError("zero-length ruleset(s)")
-
-        # duplicate names in any single group of TokenMatch objects can cause
-        # truly head-scratching bugs so check for it
-        # XXX TBD TBD TBD XXX
-
-        # In the standard usage scenarios, tokenIDs should be left None
-        # and this code will create the Enum for token IDs automatically:
-        if tokenIDs is None:
-            # collect all the tokennames from all the TokenMatch objects
-            # NOTE: weed out duplicates (using set()); dups are allowable
-            #       when there are multiple context-dependent TokenMatch lists
-            toknames = set(r.tokname for mx in tmsmap.values() for r in mx)
-            self.TokenID = Enum('TokenID', sorted(toknames))
-        else:
-            # for some reason caller desired to supply the TokenID mapping.
-            # It doesn't actually have to be an Enum, but it does have
-            # to be a mapping that will accept any tokname from any
-            # of the supplied TokenMatch objects.
-            self.TokenID = tokenIDs
+        tmsmap = self.__maketmsmap(tms)
+        self.TokenID = tokenIDs or self.create_tokenID_enum(tmsmap)
 
         # each named rule gets a RuleInfo containing:
         #      rx        - the fully-joined regexp
@@ -214,6 +177,44 @@ class Tokenizer:
             startnum = 1
         self.startnum = startnum
         self.srcname = srcname
+
+    @staticmethod
+    def __maketmsmap(tms):
+        """Convert (if necessary) a sequence tms into a map"""
+        try:
+            _ = tms[None]                # test it for dict-ness
+            tmsmap = tms                 # it's already a proper mapping
+        except KeyError:
+            msg = f"TokenMatch mapping has no default ([None]) entry"
+            raise ValueError(msg) from None
+        except TypeError:
+            # There's just one named ruleset and it was given as
+            # an iterable of TokenMatch objects; convert to mapping
+            tmsmap = {None: tms}
+
+        # No rule set may be zero-length
+        if any([len(x) == 0 for x in tmsmap.values()]):
+            raise ValueError("zero-length ruleset(s)")
+
+        # duplicate names in any single group of TokenMatch objects can cause
+        # truly head-scratching bugs so check for that.
+        for rulesetname, tms in tmsmap.items():
+            names = set()
+            for tm in tms:
+                if tm.tokname in names:
+                    raise ValueError(f"Duplicate tokname: {tm.tokname}")
+                names.add(tm.tokname)
+        return tmsmap
+
+    @classmethod
+    def create_tokenID_enum(cls, tms):
+        tmsmap = cls.__maketmsmap(tms)
+
+        # collect all the tokennames from all the TokenMatch objects
+        # NOTE: weed out duplicates (using set()); dups are allowable
+        #       when there are multiple context-dependent TokenMatch lists
+        toknames = set(r.tokname for mx in tmsmap.values() for r in mx)
+        return Enum('TokenID', sorted(toknames))
 
     def activate_ruleset(self, newrule):
         if newrule == "_next":      # means 'go to next rule'
@@ -341,7 +342,7 @@ class Tokenizer:
                 break
 
             so_far = mobj.end() + baseoffset   # end of processed chars
-            minfo = MatchedInfo(
+            minfo = _MatchedInfo(
                 tokname=mobj.lastgroup,
                 value=mobj.group(0),
                 start=mobj.start()+baseoffset,
@@ -445,6 +446,14 @@ if __name__ == "__main__":
                 with self.subTest(sx=sx):
                     for name, t in zip(expected, toks):
                         self.assertEqual(tkz.TokenID[name], t.id)
+
+        # check that duplicated toknames are not allowed
+        def test_dups(self):
+            rules = [TokenMatch('FOO', 'f'),
+                     TokenMatch('BAR', 'b'),
+                     TokenMatch('FOO', 'zzz')]
+            with self.assertRaises(ValueError):
+                tkz = Tokenizer(rules)
 
         # Example of multiple rule sets from README
         def test_ruleswitch(self):

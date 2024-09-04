@@ -200,12 +200,7 @@ _rules = [
     TokenMatch('EOF', None)
 ]
 
-# Just on general principles it seems cleaner if there is exactly
-# one TokenID Enum vs one created per-ASMTokenizer. So this shill
-# call to the Tokenizer() to make a TokenID that will then get reused
-# in each ASMTokenizer (follow the bouncing balls here!)
-
-TokenID = Tokenizer(_rules).TokenID
+TokenID = Tokenizer.create_tokenID_enum(_rules)
 
 # some handy categories
 STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
