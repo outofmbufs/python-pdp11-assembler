@@ -21,14 +21,16 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, TokenRuleSuite, Token
+from tokenizer import Tokenizer, TokenMatch, Token
 from tokenizer import TokenMatchIgnoreWhiteSpaceKeepNewline
 from tokenizer import TokenMatchIgnore
 
 
 # some ASM-specific TokenMatch subclasses
 class TokenMatchASMString(TokenMatch):
-    def matched(self, minfo, /, *, rulesuite):
+    """Take the <> brackets off an 'as' string."""
+
+    def matched(self, minfo, /):
         v = minfo.value[1:-1]
         try:
             s = ASMTokenizer.str_deslash(v)
@@ -39,7 +41,12 @@ class TokenMatchASMString(TokenMatch):
 
 
 class TokenMatchASMConstant(TokenMatch):
-    def matched(self, minfo, /, *, rulesuite):
+    """Convert all the various integer formats; see _intcvt."""
+
+    def matched(self, minfo, /):
+        # note that because this is invoked for multiple token
+        # types (CONSTANT, DQUOTED, SQUOTED) it overrides the tokname
+        # so they are all CONSTANT after value conversion
         return minfo._replace(value=ASMTokenizer._intcvt(minfo.value),
                               tokname='CONSTANT')
 
@@ -71,7 +78,11 @@ class ASMTokenizer(Tokenizer):
 
         """
 
-        super().__init__(_TRules, strings, srcname=srcname, startnum=startnum)
+        super().__init__(_rules,
+                         strings,
+                         srcname=srcname,
+                         startnum=startnum,
+                         tokenIDs=TokenID)
 
         if id8:
             # this is quite the hack, but ... truncate IDENTIFIER tokens
@@ -152,7 +163,7 @@ class ASMTokenizer(Tokenizer):
             return (v * sign) & 0xFFFF
 
 
-__rules = [
+_rules = [
     TokenMatchIgnoreWhiteSpaceKeepNewline('NEWLINE', r'\s+'),
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
@@ -189,9 +200,12 @@ __rules = [
     TokenMatch('EOF', None)
 ]
 
-_TRules = TokenRuleSuite(__rules)
+# Just on general principles it seems cleaner if there is exactly
+# one TokenID Enum vs one created per-ASMTokenizer. So this shill
+# call to the Tokenizer() to make a TokenID that will then get reused
+# in each ASMTokenizer (follow the bouncing balls here!)
 
-TokenID = _TRules.TokenID
+TokenID = Tokenizer(_rules).TokenID
 
 # some handy categories
 STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
