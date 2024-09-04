@@ -22,6 +22,26 @@
 
 
 from tokenizer import Tokenizer, TokenMatch, TokenRuleSuite, Token
+from tokenizer import TokenMatchIgnoreWhiteSpaceKeepNewline
+from tokenizer import TokenMatchIgnore
+
+
+# some ASM-specific TokenMatch subclasses
+class TokenMatchASMString(TokenMatch):
+    def matched(self, minfo, /, *, rulesuite):
+        v = minfo.value[1:-1]
+        try:
+            s = ASMTokenizer.str_deslash(v)
+        except ValueError:
+            return minfo._replace(tokname='BAD',
+                                  value=f"bad string: **{v[1:-1]}**")
+        return minfo._replace(value=s)
+
+
+class TokenMatchASMConstant(TokenMatch):
+    def matched(self, minfo, /, *, rulesuite):
+        return minfo._replace(value=ASMTokenizer._intcvt(minfo.value),
+                              tokname='CONSTANT')
 
 
 class ASMTokenizer(Tokenizer):
@@ -65,20 +85,6 @@ class ASMTokenizer(Tokenizer):
             if t.id == TokenID.IDENTIFIER:
                 t = Token(t.id, t.value[:8], t.origin, t.location)
             yield t
-
-    # CONSTANT post-processing function (interfacer) for Tokenizer rules
-    @classmethod
-    def ppf_constant(cls, trs, tokID, val):
-        # note that because SQ/DQUOTED use this, must slam tokID
-        return trs.TokenID.CONSTANT, cls._intcvt(val)
-
-    # STRING post-processing function (interfacer) for Tokenizer rules
-    @classmethod
-    def ppf_string(cls, trs, tokID, val):
-        try:
-            return tokID, cls.str_deslash(val[1:-1])
-        except ValueError:
-            return trs.TokenID.BAD, f"bad string: **{val[1:-1]}**"
 
     @staticmethod
     def __deslash1(s):
@@ -147,11 +153,11 @@ class ASMTokenizer(Tokenizer):
 
 
 __rules = [
-    TokenMatch('WHITESPACE', r'\s+', TokenRuleSuite.ppf_keepnewline),
+    TokenMatchIgnoreWhiteSpaceKeepNewline('NEWLINE', r'\s+'),
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
-    TokenMatch('CONSTANT', r'-?[0-9]+\.?', ASMTokenizer.ppf_constant),
-    TokenMatch('STRING', r'<>|(<[^<][^>]*>)', ASMTokenizer.ppf_string),
+    TokenMatchASMConstant('CONSTANT', r'-?[0-9]+\.?'),
+    TokenMatchASMString('STRING', r'<>|(<[^<][^>]*>)'),
     TokenMatch('LPAREN', r'\('),
     TokenMatch('RPAREN', r'\)'),
     TokenMatch('LBRA', r'\['),
@@ -171,16 +177,15 @@ __rules = [
     TokenMatch('DOLLAR', r'\$'),
     TokenMatch('COLON', r'\:'),
     TokenMatch('SEMICOLON', r'\;'),
-    TokenMatch('SQUOTED', r"'((\\.)|.)", ASMTokenizer.ppf_constant),
-    TokenMatch('DQUOTED', r'\"((\\.)|.){2}', ASMTokenizer.ppf_constant),
-    TokenMatch('COMMENT', r'/[^\n]*', TokenRuleSuite.ppf_ignored),
+    TokenMatchASMConstant('SQUOTED', r"'((\\.)|.)"),
+    TokenMatchASMConstant('DQUOTED', r'\"((\\.)|.){2}'),
+    TokenMatchIgnore('COMMENT', r'/[^\n]*'),
     TokenMatch('COMMA', r','),
 
     # matches anything; MUST (obviously?) be the last re
     TokenMatch('BAD', r'.'),
 
     # but these can come after .. special tokens w/no 're' pattern
-    TokenMatch('NEWLINE', None),
     TokenMatch('EOF', None)
 ]
 

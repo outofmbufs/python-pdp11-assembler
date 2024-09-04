@@ -2,7 +2,6 @@
 
 from collections import namedtuple
 from enum import Enum
-import itertools
 import re
 
 # Regular-expression line-oriented tokenizer.
@@ -12,25 +11,107 @@ import re
 #
 # The basics are:
 #    TokenMatch        Object encapsulating a basic regexp rule.
+#    ... subclasses    Various subclasses of TokenMatch for special functions
+#
 #    TokenRuleSuite    Collection of TokenMatch objects, optionally
-#                      grouped into named context-dependent subsets.
+#                      grouped into named context-dependent rulesets.
 #    Tokenizer         The engine driven by a TokenRuleSuite.
 #
 #    Token             The Tokenizer produces these.
 #    TokenID           An Enum type dynamically created by the TokenRuleSuite
 #                      from all of the TokenMatch specifications; this is the
 #                      type of each individual Token (i.e., what it matched)
-#
 
 
-# A TokenMatch is a name (which will become a TokenID), a regular expression,
-# and an optional post-processor function. NOTE: There are token "names" and
-# TokenID Enums. Generally the TokenID Enums are used as much as possible;
-# however, the TokenID type is dynamically created from examining all the
-# TokenMatch objects so here of course they are names (str) not TokenIDs.
-TokenMatch = namedtuple('TokenMatch',
-                        ['tokname', 'regexp', 'ppf'],
-                        defaults=[None])
+# basic information about a regexp match
+MatchedInfo = namedtuple('MatchedInfo', ['tokname', 'value', 'start', 'stop'])
+
+
+# A TokenMatch combines a name (e.g., 'CONSTANT') with a regular
+# expression (e.g., r'-?[0-9]+'), and its matched() method is part of
+# how subclasses can extend functionality (see docs or read examples below).
+
+class TokenMatch:
+    def __init__(self, tokname, regexp, /):
+        self.tokname = tokname
+        self.regexp = regexp
+
+    # Called when the regexp matches an input. This is where
+    # token-specific post processing can happen (by subclasses
+    # overriding). 'minfo' is a MatchedInfo and the matched()
+    # method can alter it accordingly; in this base implementation
+    # it is just returned unchanged.
+    def matched(self, minfo, /, *, rulesuite):
+        """Return a MatchedInfo based on the one given."""
+        return minfo
+
+
+class TokenMatchIgnore(TokenMatch):
+    """TokenMatch that eats tokens (i.e., matches and ignores them)."""
+
+    def matched(self, minfo, /, *, rulesuite):
+        """Cause this token to be ignored."""
+
+        return minfo._replace(tokname=None)  # tokname=None means "ignore"
+
+
+class TokenMatchConvert(TokenMatch):
+    """Type-convert the value field from string."""
+
+    # see the README for a discussion of why alt_tokname is sometimes useful
+    def __init__(self, *args, converter=int, alt_tokname=None, **kwargs):
+        """A TokenMatch that applies a converter() function to the value.
+
+        Keyword arguments:
+             converter:    will be applied to convert .value
+             alt_tokname:  if specified, changes the tokname (see README
+                           for discussion of why this can be useful)
+        """
+        super().__init__(*args, **kwargs)
+        self.converter = converter
+        self.alt_tokname = alt_tokname
+
+    def matched(self, minfo, /, *, rulesuite):
+        """Convert the value in this token (from string)."""
+        replacements = {'value': self.converter(minfo.value)}
+        if self.alt_tokname is not None:
+            replacements['tokname'] = self.alt_tokname
+        return minfo._replace(**replacements)
+
+
+class TokenMatchInt(TokenMatchConvert):
+    """Just for clarity; equivalent to TokenMatchConvert w/no kwargs."""
+
+    def __init__(self, *args):
+        super().__init__(*args)
+
+
+class TokenMatchIgnoreWhiteSpaceKeepNewline(TokenMatch):
+    def matched(self, minfo, /, *, rulesuite):
+        if '\n' in minfo.value:
+            return minfo._replace(value="\n")
+        else:
+            return minfo._replace(tokname=None)
+
+
+class TokenMatchRuleSwitch(TokenMatch):
+    def __init__(self, *args, new_rulename=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.new_rulename = new_rulename
+
+    def matched(self, minfo, /, *, rulesuite):
+        # Switch to the new ruleset; note that None means switch to
+        # the "next" ruleset (wrapping around from last to first). The None
+        # style is particularly convenient for swapping back and forth
+        # between a main ruleset and one alternate (if there are only two)
+        if self.new_rulename is None:
+            rulenames = list(rulesuite.rules)
+            current = rulenames.index(rulesuite.active_rulename)
+            nextindex = (current + 1) % len(rulenames)
+            rulesuite.active_rulename = rulenames[nextindex]
+        else:
+            rulesuite.active_rulename = self.new_rulename
+        return minfo
 
 
 # A TokLoc is for error reporting, it describes the location in the
@@ -64,30 +145,34 @@ Token = namedtuple('Token',
 #
 
 class TokenRuleSuite:
-    DEFAULT_NAME = '*'
-    ALT_NAME = 'ALT'
-
     def __init__(self, tms, /, *, tokenIDs=None):
         """Collect TokenMatch objects together for a tokenizer.
 
         Argument is either a sequence (e.g., list) of TokenMatch
+
         objects (simplest case) or a mapping (e.g., dict) of sequences
         of TokenMatch objects (modal/context-dependent case).
 
-        If specifying a mapping, note that DEFAULT_NAME ('*') must be a
-        valid key. It denotes the default/initial TokenMatch sequence.
+        If specifying a mapping, note that None must be a valid key.
+        It denotes the default/initial TokenMatch sequence.
         All other key names can be arbitrary.
         """
 
         # Internally, always use a mapping so convert if needed.
         try:
-            _ = tms[self.DEFAULT_NAME]        # test it for dict-ness
+            _ = tms[None]                # test it for dict-ness
+            tmsmap = tms                 # it's already a proper mapping
         except KeyError:
-            msg = f"TokenMatch mapping has no '{self.DEFAULT_NAME}' entry"
+            msg = f"TokenMatch mapping has no default ([None]) entry"
             raise ValueError(msg) from None
         except TypeError:
-            # it wasn't a dict so make it one.
-            tms = {self.DEFAULT_NAME: tms}
+            # There's just one named ruleset and it was given as
+            # an iterable of TokenMatch objects; convert to mapping
+            tmsmap = {None: tms}
+
+        # rule sets cannot be zero-length
+        if any([len(x) == 0 for x in tmsmap.values()]):
+            raise ValueError("zero-length ruleset(s)")
 
         # In the standard usage scenarios, tokenIDs should be left None
         # and this code will create the Enum for token IDs automatically:
@@ -95,7 +180,7 @@ class TokenRuleSuite:
             # collect all the tokennames from all the TokenMatch objects
             # NOTE: weed out duplicates (using set()); dups are allowable
             #       when there are multiple context-dependent TokenMatch lists
-            toknames = set(r.tokname for mx in tms.values() for r in mx)
+            toknames = set(r.tokname for mx in tmsmap.values() for r in mx)
             self.TokenID = Enum('TokenID', sorted(toknames))
         else:
             # for some reason caller desired to supply the TokenID mapping.
@@ -104,115 +189,47 @@ class TokenRuleSuite:
             # of the supplied TokenMatch objects.
             self.TokenID = tokenIDs
 
-        # each named rule set needs its own pre-computed re, ppf, etc.
-        RuleInfo = namedtuple('RuleInfo', ['rx', 'ppfmap'])
+        # each named rule gets a RuleInfo containing:
+        #      rx        - the fully-joined regexp
+        #      name2tms  - map a TokenMatch name back to the TokenMatch
+        RuleInfo = namedtuple('RuleInfo', ['rx', 'name2tms'])
 
+        # Make a mapping from each rule name to its RuleInfo
         self.rules = {
             k: RuleInfo('|'.join(f'(?P<{r.tokname}>{r.regexp})'
-                                 for r in mx if r.regexp is not None),
-                        {r.tokname: r.ppf
-                         for r in mx if r.ppf is not None})
-            for k, mx in tms.items()
+                                 for r in tms if r.regexp is not None),
+                        {tm.tokname: tm for tm in tms})
+            for k, tms in tmsmap.items()
         }
 
-        # After all that:
-        #   self.rules is a dictionary, indexed by names from the tms keys.
-        #   Each entry is a RuleInfo that has:
-        #         rx: big joined regexp for those TokenMatch objects
-        #     ppfmap: ppf functions for Match objects that have them
-
-        self.activate()        # start with the default/initial match rules
-
-    def activate(self, name=None):
-        self.activerules = self.rules[name or self.DEFAULT_NAME]
-
-    # There is optional post processing before an re match becomes
-    # a token. The processing function is invoked like this:
-    #
-    #     newtokID, newval = ppf(trs, tokID, val)
-    #
-    # where:
-    #  'ppf' is the post-processing function,
-    #  'trs' is the TokenRuleSuite object
-    #  'tokID' and 'val' are the tokenID and value from the match.
-    # The returned (newtokID, newval) are used to create the Token;
-    # if newtokID is None then no Token is created (useful, for example,
-    # for ignoring certain types of tokens, perhaps whitespace for example)
-    #
-    # The ppf is permitted to invoke trs.activate() to switch the active
-    # match rules in the Tokenizer. See the unittests for an example of
-    # how (e.g.) C-style '/* ..... */' multi-line comments can use this.
+        self.active_rulename = None          # default rule 'name' is: None
 
     def run(self, s):
-        """Run the TokenRules on string 's'
+        """Run the TokenRules on string 's', yield MatchInfo's."""
 
-        Generate a sequence of tuples:
-               (tokID, val, start, stop)
-        where:
-                tokID -- TokenID from rule/ppf
-                  val -- value from rule/ppf
-                start -- position in 's' of match start
-                 stop -- end position in 's'
+        rules = None
+        so_far = 0
 
-        Note that the ppf can modify value, so stop-start+1 might not
-        equal len(val) (val might not even be a string)
-        """
+        # Note that TokenMatch objects can cause a rulename change
+        # so the loop is written this way to accommodate that.
+        while True:
+            if self.rules[self.active_rulename] != rules:
+                rules = self.rules[self.active_rulename]
+                g = re.finditer(rules.rx, s[so_far:])
+                baseoffset = so_far
+            try:
+                mobj = next(g)
+            except StopIteration:
+                break
 
-        for mobj in re.finditer(self.activerules.rx, s):
+            so_far = mobj.end() + baseoffset   # end of processed chars
+            minfo = MatchedInfo(
+                tokname=mobj.lastgroup,
+                value=mobj.group(0),
+                start=mobj.start()+baseoffset,
+                stop=so_far)
 
-            # 'lastgroup' means 'outmost' here. Most of the time there is
-            # only one named matching group anyway, but conceptually there
-            # could be others if the rules contain their own such names.
-            tokname = mobj.lastgroup
-            ppf = self.activerules.ppfmap.get(tokname, lambda trs, *a: a)
-            tokID, val = ppf(self, self.TokenID[tokname], mobj.group(0))
-            yield tokID, val, mobj.start(), mobj.end()
-
-    # SOME BUILT-IN PPF FUNCTIONS FOR CONVENIENCE:
-    #   ppf_keepnewline: Helper for using \s for WHITESPACE while
-    #      still keeping \n visible as a separate token. Useful for
-    #      line-oriented grammars that otherwise ignore white space.
-    #
-    #   ppf_ignored: "ignore this when seen" ppf.
-    #
-    #   ppf_int: simply calls "int()" on the value string.
-    #
-    #   ppf_altrules: "switch in alternate rules" ppf
-    #
-    #   ppf_mainrules: "go back to main (default) rules" ppf
-    #
-    # NOTE: Any of the ppf functions that take extra arguments will have
-    #       to be curried via functools.partial (or equivalent).
-
-    @staticmethod
-    def ppf_keepnewline(trs, id, val, *, name='NEWLINE'):
-        if name is None:      # special case means use the attached TokenID
-            replacer = id
-        else:
-            replacer = trs.TokenID[name]
-        if '\n' in val:
-            return replacer, "\n"
-        else:
-            return None, None
-
-    @staticmethod
-    def ppf_ignored(trs, id, val):
-        return None, None
-
-    @staticmethod
-    def ppf_int(trs, id, val):
-        return id, int(val)
-
-    @staticmethod
-    def ppf_altrules(trs, tokID, val, altrules=ALT_NAME):
-        """Switch to an alternate set of rules"""
-        trs.activate(altrules)
-        return tokID, val
-
-    @staticmethod
-    def ppf_mainrules(trs, tokID, val):
-        trs.activate()
-        return tokID, val
+            yield rules.name2tms[minfo.tokname].matched(minfo, rulesuite=self)
 
 
 class Tokenizer:
@@ -220,7 +237,7 @@ class Tokenizer:
 
     _NOTGIVEN = object()
 
-    def __init__(self, trs, strings, /, *,
+    def __init__(self, trs, strings=None, /, *,
                  srcname=None, startnum=_NOTGIVEN):
         """Set up a Tokenizer; see tokens() to generate tokens.
 
@@ -250,6 +267,17 @@ class Tokenizer:
                        line and will be numbered starting from this number.
                        Default is 1. If None, line numbers left out.
         """
+
+        # This is probably being too lenient, but: allow trs to be a direct
+        # list of TokenMatch objects (instead of a TokenRuleSuite) and convert
+        # it accordingly if so. 'TokenID' attribute and 'run' method are
+        # the duck-typing requirement for the TokenRuleSuite.
+        if not (hasattr(trs, 'TokenID') and hasattr(trs, 'run')):
+            try:
+                trs = TokenRuleSuite(trs)
+            except (AttributeError, TypeError):
+                msg = "trs not a TokenRuleSuite and can't be converted"
+                raise TypeError(msg) from None
 
         self.strings = strings
         self.trs = trs
@@ -337,28 +365,24 @@ class Tokenizer:
         Optional keyword argument linenumber will be put into error messages.
         """
 
-        # outer loop for looping over potential rules-changes mid-string.
-        rulescheck = -1    # the point being: "is not" self.activerules
+        expected_next_pos = 0    # to catch unmatched characters
+        for minfo in self.trs.run(s):
+            # make sure this match starts at the next expected character
+            if minfo.start != expected_next_pos:
+                break
+            expected_next_pos = minfo.stop
+            try:
+                id = self.trs.TokenID[minfo.tokname]
+            except KeyError:
+                pass
+            else:
+                loc = TokLoc(name, linenumber, minfo.start, minfo.stop)
+                yield Token(id, minfo.value, s, loc)
 
-        while self.trs.activerules is not rulescheck:
-            rulescheck = self.trs.activerules
-
-            next_start = 0    # to catch unmatched characters
-
-            # inner loop goes through the string, match by match
-            for tokID, val, start, stop in self.trs.run(s):
-                if start != next_start:
-                    raise ValueError(f"unmatched @{next_start}, {s=}")
-                next_start = stop
-                if tokID is not None:         # None means just eat this
-                    loc = TokLoc(name, linenumber, start, stop)
-                    yield Token(tokID, val, s, loc)
-
-                if self.trs.activerules != rulescheck:
-                    # new rules activated by a post-processor; break 's' at
-                    # the last token and loop around outer level again
-                    s = s[stop:]
-                    break
+        # If the expected_next_pos here is not the end of s then there
+        # was something not matched along the way (or at the end)
+        if expected_next_pos != len(s):
+            raise ValueError(f"unmatched @{expected_next_pos}, {s=}")
 
 
 if __name__ == "__main__":
@@ -369,11 +393,9 @@ if __name__ == "__main__":
         def test1(self):
             # example adapted from README.md on github
             rules = [
-                TokenMatch('WHITESPACE', r'\s+',
-                           TokenRuleSuite.ppf_keepnewline),
+                TokenMatchIgnoreWhiteSpaceKeepNewline('NEWLINE', r'\s+'),
                 TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
-                TokenMatch('CONSTANT', r'-?[0-9]+', TokenRuleSuite.ppf_int),
-                TokenMatch('NEWLINE', None)
+                TokenMatchInt('CONSTANT', r'-?[0-9]+'),
             ]
 
             rule_suite = TokenRuleSuite(rules)
@@ -415,28 +437,28 @@ if __name__ == "__main__":
                 TokenMatch('LBRACE', r'{'),
                 TokenMatch('RBRACE', r'}'),
                 TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
-                TokenMatch('COMMENT_START',
-                           r'/\*', TokenRuleSuite.ppf_altrules),
+                TokenMatchRuleSwitch('COMMENT_START', r'/\*'),
                 TokenMatch('BAD', r'.'),
             ]
 
             altrules = [
                 # eat everything that is not a star
-                TokenMatch('C_NOTSTAR', r'[^*]+', TokenRuleSuite.ppf_ignored),
+                TokenMatchIgnore('C_NOTSTAR', r'[^*]+'),
 
                 # */ ends the comment and returns to regular rules
-                TokenMatch(
-                    'COMMENT_END', r'\*/', TokenRuleSuite.ppf_mainrules),
+                TokenMatchRuleSwitch('COMMENT_END', r'\*/'),
 
                 # when a star is seen that isn't */ this eats it
-                TokenMatch('C_STAR', r'\*', TokenRuleSuite.ppf_ignored),
+                TokenMatchIgnore('C_STAR', r'\*'),
             ]
 
             trs = TokenRuleSuite(
-                {TokenRuleSuite.DEFAULT_NAME: rules, 'ALT': altrules})
+                {None: rules, 'ALT': altrules})
 
             for sx, expected in (
                     (["/**/"], ['COMMENT_START', 'COMMENT_END']),
+                    (["{/**/}"],
+                     ['LBRACE', 'COMMENT_START', 'COMMENT_END', 'RBRACE']),
                     (["/***/"], ['COMMENT_START', 'COMMENT_END']),
                     (["/****/"], ['COMMENT_START', 'COMMENT_END']),
                     (["/*****/"], ['COMMENT_START', 'COMMENT_END']),
@@ -444,11 +466,56 @@ if __name__ == "__main__":
                     (["/* * / * */"], ['COMMENT_START', 'COMMENT_END']),
                     (["abc/*", "def*/"],
                      ['IDENTIFIER', 'COMMENT_START', 'COMMENT_END']),
+                    (["/* here is a bunch",
+                      "of lines representing a wordy C comment.",
+                      "** this one even has * characters and / characters",
+                      "and, oh my, event a second /* to see what happens.",
+                      "This brace is not matched because in comment: {",
+                      "here is the end of the comment: */",
+                      "BUT_THIS_IS_AN_IDENTIFIER"],
+                     ['COMMENT_START', 'COMMENT_END', 'IDENTIFIER']),
+
                     ):
                 tkz = Tokenizer(trs, sx)
                 toks = list(tkz.tokens())
                 with self.subTest(sx=sx):
                     for name, t in zip(expected, toks):
                         self.assertEqual(trs.TokenID[name], t.id)
+
+        # Example of multiple rule sets from README
+        def test_ruleswitch(self):
+
+            switcher = TokenMatchRuleSwitch('SWITCH', r'/')
+            group1 = [
+                TokenMatch('ZEE', r'z'),
+                TokenMatchRuleSwitch('ALTRULES', r'/', new_rulename='ALT')
+            ]
+
+            group2 = [
+                TokenMatch('ZED', r'z'),
+                TokenMatchRuleSwitch('MAINRULES', r'/', new_rulename=None)
+            ]
+
+            rules = {None: group1, 'ALT': group2}
+            rule_suite = TokenRuleSuite(rules)
+            expected = (
+                rule_suite.TokenID.ZEE,
+                rule_suite.TokenID.ZEE,
+                rule_suite.TokenID.ALTRULES,
+                rule_suite.TokenID.ZED,
+                rule_suite.TokenID.MAINRULES,
+                rule_suite.TokenID.ZEE,
+            )
+
+            tkz = Tokenizer(rule_suite, None)
+            for token, ex in zip(tkz.string_to_tokens('zz/z/z'), expected):
+                self.assertEqual(token.id, ex)
+                if ex in (rule_suite.TokenID.ZEE, rule_suite.TokenID.ZED):
+                    self.assertEqual(token.value, 'z')
+                elif ex in (rule_suite.TokenID.ALTRULES,
+                            rule_suite.TokenID.MAINRULES):
+                    self.assertEqual(token.value, '/')
+                else:
+                    self.assertTrue(False)
 
     unittest.main()
