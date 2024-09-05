@@ -68,10 +68,9 @@ class TokenMatchConvert(TokenMatch):
 
     def matched(self, minfo, /):
         """Convert the value in this token (from string)."""
-        replacements = {'value': self.converter(minfo.value)}
-        if self.alt_tokname is not None:
-            replacements['tokname'] = self.alt_tokname
-        return minfo._replace(**replacements)
+        return minfo._replace(
+            value=self.converter(minfo.value),
+            tokname=self.alt_tokname or minfo.tokname)
 
 
 class TokenMatchInt(TokenMatchConvert):
@@ -81,10 +80,34 @@ class TokenMatchInt(TokenMatchConvert):
         super().__init__(*args)
 
 
-class TokenMatchIgnoreWhiteSpaceKeepNewline(TokenMatch):
+class TokenMatchKeyword(TokenMatch):
+    """For keywords. Just specify the keyword no regexp.
+       Example:
+
+            TokenMatchKeyword('if')
+
+       is equivalent to:
+
+            TokenMatch('IF', r'(if)[^a-zA-Z_0-9]*')
+    """
+    def __init__(self, tokname, regexp=None, *args, **kwargs):
+        if regexp is None:
+            regexp = self.keyword_regexp(tokname)
+        super().__init__(tokname.upper(), regexp, *args, **kwargs)
+
+    # broken out so can be overridden if application has other syntax
+    def keyword_regexp(self, tokname):
+        return f"({tokname})(?![a-zA-Z0-9_])"
+
+
+class TokenMatchIgnoreButKeep(TokenMatch):
+    def __init__(self, tokname, regexp, *args, keep, **kwargs):
+        super().__init__(tokname, regexp, *args, **kwargs)
+        self.keep = keep
+
     def matched(self, minfo, /):
-        if '\n' in minfo.value:
-            return minfo._replace(value="\n")
+        if self.keep in minfo.value:
+            return minfo._replace(value=self.keep)
         else:
             return minfo._replace(tokname=None)
 
@@ -211,7 +234,7 @@ class Tokenizer:
         """Can be called separately to make a TokenID Enum from rules."""
         tmsmap = cls.__tmscvt(tms)
 
-        # collect all the tokennames from all the TokenMatch objects
+        # collect all the toknames from all the TokenMatch objects
         # NOTE: weed out duplicates (using set()); dups are allowable
         #       when there are multiple context-dependent TokenMatch lists
         toknames = set(r.tokname for mx in tmsmap.values() for r in mx)
@@ -359,9 +382,8 @@ if __name__ == "__main__":
     class TestMethods(unittest.TestCase):
 
         def test1(self):
-            # example adapted from README.md on github
             rules = [
-                TokenMatchIgnoreWhiteSpaceKeepNewline('NEWLINE', r'\s+'),
+                TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
                 TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
                 TokenMatchInt('CONSTANT', r'-?[0-9]+'),
             ]

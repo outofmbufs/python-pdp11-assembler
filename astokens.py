@@ -22,7 +22,7 @@
 
 
 from tokenizer import Tokenizer, TokenMatch, Token
-from tokenizer import TokenMatchIgnoreWhiteSpaceKeepNewline
+from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 
 
@@ -164,7 +164,7 @@ class ASMTokenizer(Tokenizer):
 
 
 _rules = [
-    TokenMatchIgnoreWhiteSpaceKeepNewline('NEWLINE', r'\s+'),
+    TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
     TokenMatchASMConstant('CONSTANT', r'-?[0-9]+\.?'),
