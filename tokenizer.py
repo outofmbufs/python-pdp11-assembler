@@ -155,7 +155,7 @@ class Tokenizer:
                        automatically, it can be provided here.
         """
 
-        tmsmap = self.__maketmsmap(tms)
+        tmsmap = self.__tmscvt(tms)
         self.TokenID = tokenIDs or self.create_tokenID_enum(tmsmap)
 
         # each named rule gets a RuleInfo containing:
@@ -179,7 +179,7 @@ class Tokenizer:
         self.srcname = srcname
 
     @staticmethod
-    def __maketmsmap(tms):
+    def __tmscvt(tms):
         """Convert (if necessary) a sequence tms into a map"""
         try:
             _ = tms[None]                # test it for dict-ness
@@ -208,7 +208,8 @@ class Tokenizer:
 
     @classmethod
     def create_tokenID_enum(cls, tms):
-        tmsmap = cls.__maketmsmap(tms)
+        """Can be called separately to make a TokenID Enum from rules."""
+        tmsmap = cls.__tmscvt(tms)
 
         # collect all the tokennames from all the TokenMatch objects
         # NOTE: weed out duplicates (using set()); dups are allowable
