@@ -21,14 +21,16 @@ import re
 #                     type of each individual Token (i.e., what it matched)
 
 
-# A _MatchedInfo is created by the Tokenizer from each regexp match, and
-# passed to the corresponding TokenMatch.matched() for further processing.
-_MatchedInfo = namedtuple(
-    '_MatchedInfo', ['tokname', 'value', 'start', 'stop', 'tokenizer'])
+# A _TInfo is created by the the action() method in each TokenMatch,
+# which is invoked each time a regexp match occurs. This is an opportunity
+# for the TokenMatch to alter the value, and optionally divert to a
+# different token factory.
+
+_TInfo = namedtuple('_TInfo', ['value', 'tokenfactory'], defaults=[None])
 
 
 # A TokenMatch combines a name (e.g., 'CONSTANT') with a regular
-# expression (e.g., r'-?[0-9]+'), and its matched() method is part of
+# expression (e.g., r'-?[0-9]+'), and its action() method is part of
 # how subclasses can extend functionality (see docs or read examples below).
 
 class TokenMatch:
@@ -36,41 +38,49 @@ class TokenMatch:
         self.tokname = tokname
         self.regexp = regexp
 
+        # fail early, because failing later is very confusing...
+        if regexp is not None:
+            try:
+                _ = re.compile(regexp)
+            except re.error:
+                raise ValueError(
+                    self.__class__.__name__ +
+                    f" {tokname}, bad regexp: '{regexp}'") from None
+
     # Token-specific post processing on a match. This is a no-op; subclasses
     # will typically override with token-specific conversions/actions.
-    def matched(self, minfo, /):
-        """Return a _MatchedInfo based on the one given."""
-        return minfo
+    def action(self, value, tkz, /):
+        return _TInfo(value=value)
+
+
+class TokenIDOnly(TokenMatch):
+    """Put a bare tokname into the TokenID Enum; no regexp"""
+    # no *args/**kwargs -  enforce "just a tokname and nothing else"
+    def __init__(self, tokname):
+        super().__init__(tokname, None)
 
 
 class TokenMatchIgnore(TokenMatch):
     """TokenMatch that eats tokens (i.e., matches and ignores them)."""
 
-    def matched(self, minfo, /):
+    def action(self, value, tkz, /):
         """Cause this token to be ignored."""
-        return minfo._replace(tokname=None)  # tokname=None means "ignore"
+        return None
 
 
 class TokenMatchConvert(TokenMatch):
     """Type-convert the value field from string."""
 
-    # see the README for a discussion of why alt_tokname is sometimes useful
-    def __init__(self, *args, converter=int, alt_tokname=None, **kwargs):
+    def __init__(self, *args, converter=int, **kwargs):
         """A TokenMatch that applies a converter() function to the value.
-
-        Keyword arguments:
              converter:    will be applied to convert .value
-             alt_tokname:  if specified, changes the tokname (see README)
         """
         super().__init__(*args, **kwargs)
         self.converter = converter
-        self.alt_tokname = alt_tokname
 
-    def matched(self, minfo, /):
+    def action(self, value, tkz, /):
         """Convert the value in this token (from string)."""
-        return minfo._replace(
-            value=self.converter(minfo.value),
-            tokname=self.alt_tokname or minfo.tokname)
+        return _TInfo(value=self.converter(value))
 
 
 class TokenMatchInt(TokenMatchConvert):
@@ -105,11 +115,11 @@ class TokenMatchIgnoreButKeep(TokenMatch):
         super().__init__(tokname, regexp, *args, **kwargs)
         self.keep = keep
 
-    def matched(self, minfo, /):
-        if self.keep in minfo.value:
-            return minfo._replace(value=self.keep)
+    def action(self, value, tkz, /):
+        if self.keep in value:
+            return _TInfo(value=self.keep)
         else:
-            return minfo._replace(tokname=None)
+            return None
 
 
 class TokenMatchRuleSwitch(TokenMatch):
@@ -117,24 +127,21 @@ class TokenMatchRuleSwitch(TokenMatch):
         super().__init__(*args, **kwargs)
         self.new_rulename = new_rulename
 
-    def matched(self, minfo, /):
-        minfo.tokenizer.activate_ruleset(self.new_rulename)
-        return minfo
+    def action(self, value, tkz, /):
+        tkz.activate_ruleset(self.new_rulename)
+        return _TInfo(value=value)
 
 
 # A TokLoc is for error reporting, it describes the location in the
 # source stream a given Token was matched.
 TokLoc = namedtuple('TokLoc',
-                    ['source', 'line', 'start', 'end'],
-                    defaults=["unknown", None, 0, 0])
+                    ['s', 'sourcename', 'lineno', 'startpos', 'endpos'],
+                    defaults=["", "unknown", None, 0, 0])
 
 
-# A Token has a TokenID, a value, an "origin" which is the full string
-# (usually an entire line) containing the token and a TokLoc for more
-# details on match location.
-Token = namedtuple('Token',
-                   ['id', 'value', 'origin', 'location'],
-                   defaults=[None, None, TokLoc()])
+# A Token has a TokenID, a value, and a TokLoc.  The TokLoc contains the
+# source string and other position details useful for error reporting.
+Token = namedtuple('Token', ['id', 'value', 'location'])
 
 
 class Tokenizer:
@@ -144,7 +151,8 @@ class Tokenizer:
 
     def __init__(self, tms, strings=None, /, *,
                  srcname=None, startnum=_NOTGIVEN,
-                 tokenIDs=None):
+                 tokenIDs=None,
+                 tokenfactory=Token):
         """Set up a Tokenizer; see tokens() to generate tokens.
 
         Arguments:
@@ -167,7 +175,7 @@ class Tokenizer:
 
            srcname  -- for error reporting, but otherwise ignored.
                        Usually should be specified as the input file name.
-                       This eventually goes into the TokLocs as "source"
+                       This eventually goes into the TokLocs as "sourcename"
 
            startnum -- for error reporting, but otherwise ignored.
                        Each string in strings is assumed to be a separate
@@ -181,25 +189,28 @@ class Tokenizer:
         tmsmap = self.__tmscvt(tms)
         self.TokenID = tokenIDs or self.create_tokenID_enum(tmsmap)
 
-        # each named rule gets a RuleInfo containing:
-        #      rx        - the fully-joined regexp
-        #      name2tms  - map a TokenMatch name back to the TokenMatch
-        RuleInfo = namedtuple('RuleInfo', ['rx', 'name2tms'])
+        # each named ruleset will become one regexp with a (?P=name)
+        # annotation for each individual regexp in it. The 'name' in
+        # those annotations is a "pname" and it is not the same as
+        # the tokname because toknames are allowed to be duplicated.
+        #
+        RuleSet = namedtuple('RuleSet', ['joined_rx', 'pmap', 'name'])
 
-        # Make a mapping from each rule name to its RuleInfo
-        self.rules = {
-            k: RuleInfo('|'.join(f'(?P<{r.tokname}>{r.regexp})'
-                                 for r in tms if r.regexp is not None),
-                        {tm.tokname: tm for tm in tms})
-            for k, tms in tmsmap.items()
-        }
+        self.rulesets = {}
+        for name, tms in tmsmap.items():
+            pmap = {f"PN{i:04d}": tm for i, tm in enumerate(tms)}
+            joined_rx = '|'.join(f'(?P<{pname}>{tm.regexp})'
+                                 for pname, tm in pmap.items()
+                                 if tm.regexp is not None)
+            self.rulesets[name] = RuleSet(joined_rx, pmap, name)
 
         self.strings = strings
-        self.active_rulesname = None
+        self.rules = self.rulesets[None]
         if startnum is self._NOTGIVEN:
             startnum = 1
         self.startnum = startnum
         self.srcname = srcname
+        self.tokenfactory = tokenfactory
 
     @staticmethod
     def __tmscvt(tms):
@@ -219,14 +230,6 @@ class Tokenizer:
         if any([len(x) == 0 for x in tmsmap.values()]):
             raise ValueError("zero-length ruleset(s)")
 
-        # duplicate names in any single group of TokenMatch objects can cause
-        # truly head-scratching bugs so check for that.
-        for rulesetname, tms in tmsmap.items():
-            names = set()
-            for tm in tms:
-                if tm.tokname in names:
-                    raise ValueError(f"Duplicate tokname: {tm.tokname}")
-                names.add(tm.tokname)
         return tmsmap
 
     @classmethod
@@ -242,12 +245,12 @@ class Tokenizer:
 
     def activate_ruleset(self, newrule):
         if newrule == "_next":      # means 'go to next rule'
-            rulenames = list(self.rules)
-            current = rulenames.index(self.active_rulesname)
+            rulenames = list(self.rulesets)
+            current = rulenames.index(self.rules.name)
             nextindex = (current + 1) % len(rulenames)
-            self.active_rulesname = rulenames[nextindex]
+            self.rules = self.rulesets[rulenames[nextindex]]
         else:
-            self.active_rulesname = newrule
+            self.rules = self.rulesets[newrule]
 
     # convenience for use in case where strings that end with two
     # character sequence "backslash newline" should be combined with
@@ -323,57 +326,53 @@ class Tokenizer:
                 s, linenumber=i, name=self.srcname)
 
     def string_to_tokens(self, s, /, *, linenumber=None, name=None):
-        """GENERATE tokens from a string.
+        """Tokenize string 's', yield Tokens
 
-        Optional keyword argument linenumber will be put into error messages.
+           NOTE: optional keyword arguments linenumber and name are
+                 entirely for making a TokLoc for better error reporting.
         """
 
-        expected_next_pos = 0    # to catch unmatched characters
-        for minfo in self.run(s):
-            # make sure this match starts at the next expected character
-            if minfo.start != expected_next_pos:
-                break
-            expected_next_pos = minfo.stop
-            try:
-                id = self.TokenID[minfo.tokname]
-            except KeyError:
-                pass
-            else:
-                loc = TokLoc(name, linenumber, minfo.start, minfo.stop)
-                yield Token(id, minfo.value, s, loc)
-
-        # If the expected_next_pos here is not the end of s then there
-        # was something not matched along the way (or at the end)
-        if expected_next_pos != len(s):
-            raise ValueError(f"unmatched @{expected_next_pos}, {s=}")
-
-    def run(self, s):
-        """Run the TokenRules on string 's', yield MatchInfo's."""
-
         so_far = 0
-        rules = None
+        prevrules = None
 
         # Note that TokenMatch objects can cause active_rulesname to change
         # so the loop is written this way to accommodate that.
         while True:
-            if rules is not self.rules[self.active_rulesname]:
-                rules = self.rules[self.active_rulesname]
-                g = re.finditer(rules.rx, s[so_far:])
+            # this fires on any rules change AND ALSO the first time through
+            if prevrules is not self.rules:
+                prevrules = self.rules
+                g = re.finditer(self.rules.joined_rx, s[so_far:])
                 baseoffset = so_far
-            try:
-                mobj = next(g)
-            except StopIteration:
+
+            tm, value, startrel, stoprel = self._nextmatch(g)
+            start = startrel + baseoffset
+            if tm is None or start != so_far:
                 break
 
-            so_far = mobj.end() + baseoffset   # end of processed chars
-            minfo = _MatchedInfo(
-                tokname=mobj.lastgroup,
-                value=mobj.group(0),
-                start=mobj.start()+baseoffset,
-                stop=so_far,
-                tokenizer=self)
+            tokid = self.TokenID[tm.tokname]
+            so_far = stoprel + baseoffset   # end of processed chars in s
+            loc = TokLoc(s, name, linenumber, start, so_far)
 
-            yield rules.name2tms[minfo.tokname].matched(minfo)
+            tinfo = tm.action(value, self)
+            if tinfo is None:       # None means ignore this token
+                continue
+
+            factory = tinfo.tokenfactory or self.tokenfactory
+            yield factory(tokid, tinfo.value, loc)
+
+        # If haven't made it to the end, something didn't match along the way
+        if so_far != len(s):
+            raise ValueError(f"unmatched @{so_far}, {s=}")
+
+    def _nextmatch(self, g):
+        """Support for string_to_tokens; returns next match and info"""
+
+        try:
+            mobj = next(g)
+        except StopIteration:
+            return None, None, -1, -1
+        tm = self.rules.pmap[mobj.lastgroup]
+        return tm, mobj.group(0), mobj.start(), mobj.end()
 
 
 if __name__ == "__main__":
@@ -470,13 +469,29 @@ if __name__ == "__main__":
                     for name, t in zip(expected, toks):
                         self.assertEqual(tkz.TokenID[name], t.id)
 
-        # check that duplicated toknames are not allowed
+        # check that duplicated toknames are allowed
         def test_dups(self):
             rules = [TokenMatch('FOO', 'f'),
                      TokenMatch('BAR', 'b'),
                      TokenMatch('FOO', 'zzz')]
-            with self.assertRaises(ValueError):
-                tkz = Tokenizer(rules)
+            tkz = Tokenizer(rules)
+
+            expected = (('FOO', 'f'), ('BAR', 'b'), ('FOO', 'zzz'))
+            for token, ex in zip(tkz.string_to_tokens('fbzzz'), expected):
+                self.assertEqual(token.id, tkz.TokenID[ex[0]])
+                self.assertEqual(token.value, ex[1])
+
+        # Test naked tokenIDs (no regexp)
+        def test_tokIDonly(self):
+            rules = [
+                TokenMatch('CONSTANT', r'-?[0-9]+'),
+                TokenMatch('FOO', None),
+                TokenIDOnly('BAR')
+            ]
+            tkz = Tokenizer(rules)
+            self.assertTrue(hasattr(tkz.TokenID, 'FOO'))
+            self.assertTrue(hasattr(tkz.TokenID, 'BAR'))
+            self.assertTrue(hasattr(tkz.TokenID, 'CONSTANT'))
 
         # Example of multiple rule sets from README
         def test_ruleswitch(self):
@@ -511,5 +526,102 @@ if __name__ == "__main__":
                     self.assertEqual(token.value, '/@/')
                 else:
                     self.assertTrue(False)
+
+        # test the simplest, most-direct way to make a different Token()
+        def test_factory_1(self):
+            class MyToken:
+                def __init__(self, id, value, location, /):
+                    self.id = id
+                    self.value = value
+                    self.location = location
+            rules = [
+                TokenMatch('A', 'a'),
+            ]
+            tkz = Tokenizer(rules, tokenfactory=MyToken)
+            self.assertTrue(all(isinstance(t, MyToken)
+                                for t in tkz.string_to_tokens('a')))
+
+        # test the idea of subclassing TokenMatch to return a different
+        # factory. As a (likely useless in real life?) twist, this test
+        # demonstrates returning different types of Token objects depending
+        # on the match
+        def test_factory_2(self):
+            class MyToken_1:
+                def __init__(self, id, value, location, /):
+                    self.id = id
+                    self.value = value
+                    self.location = location
+
+            class MyToken_2:
+                def __init__(self, id, value, location, /):
+                    self.id = id
+                    self.value = value
+                    self.location = location
+
+            class TokenMatch_1(TokenMatch):
+                def action(self, value, tkz, /):
+                    return _TInfo(value=value, tokenfactory=MyToken_1)
+
+            class TokenMatch_2(TokenMatch):
+                def action(self, value, tkz, /):
+                    return _TInfo(value=value, tokenfactory=MyToken_2)
+
+            rules = [
+                TokenMatch('NATIVE', '0'),
+                TokenMatch_1('_1', '1'),
+                TokenMatch_2('_2', '2'),
+            ]
+
+            expected = [Token, MyToken_1, MyToken_2, Token]
+            tkz = Tokenizer(rules)
+            classes = [t.__class__ for t in tkz.string_to_tokens('0120')]
+            self.assertEqual(classes, expected)
+
+        # this elaborate example shows how to pass additional arguments
+        # into the custom Token object creation. It requires making another
+        # class, "MyMatchedInfo" here, to return as the minfo from the
+        # subclassed TokenMatch, so that its method (.factory) will be invoked
+        # to create the token object (and thereby have access to the instance
+        # variables established from MyTokenMatch)
+
+        def test_factory_3(self):
+
+            class MyToken:
+                # NOTE how this takes an extra argument, and how it
+                #      was supplied by the MyTokenMatch and propagated
+                #      by the MyMatchedInfo
+
+                def __init__(self, id, value, location, custom_arg):
+                    self.id = id
+                    self.value = value
+                    self.location = location
+                    self.custom_arg = custom_arg
+
+            class MyTInfo:
+                def __init__(self, value, custom_arg):
+                    self.value = value
+                    self.custom_arg = custom_arg
+
+                def tokenfactory(self, tokid, value, location):
+                    return MyToken(tokid, value, location, self.custom_arg)
+
+            class MyTokenMatch(TokenMatch):
+                def __init__(self, *args, custom_arg, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self.custom_arg = custom_arg
+
+                def action(self, value, tkz, /):
+                    return MyTInfo(value, self.custom_arg)
+
+            # Ok, now put that all together...
+            rules = [
+                MyTokenMatch('FOO', '1', custom_arg='bozo'),
+                MyTokenMatch('BAR', '2', custom_arg='krusty')
+            ]
+
+            expected = ['bozo', 'krusty', 'bozo']
+            tkz = Tokenizer(rules)
+            customs = [t.custom_arg for t in tkz.string_to_tokens('121')]
+            self.assertEqual(customs, expected)
 
     unittest.main()

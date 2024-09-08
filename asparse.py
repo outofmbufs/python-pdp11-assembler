@@ -658,11 +658,12 @@ class ASMParser:
             msg = "End of file - "
         else:
             t0 = self._tk.peektok()
-            if t0.location.line is not None:
-                if t0.location.source is not None:
-                    msg = f"'{t0.location.source}' - line {t0.location.line}: "
+            if t0.location.lineno is not None:
+                if t0.location.sourcename is not None:
+                    msg = f"'{t0.location.sourcename}' - "
+                    msg += f"line {t0.location.lineno}: "
                 else:
-                    msg = f"Line {t0.location.line}: "
+                    msg = f"Line {t0.location.lineno}: "
             elif t0.value is not None:
                 msg = f"At {t0.value}: "
             else:
