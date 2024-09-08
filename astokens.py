@@ -21,34 +21,58 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, Token
+from tokenizer import Tokenizer, TokenMatch, Token, _TInfo
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 
 
 # some ASM-specific TokenMatch subclasses
+
+class AltTokInfo:
+    # This is used by some of the TokenMatch subclasses below when
+    # they need to change the token type that would be returned
+    # (e.g., a DQUOTED becomes a CONSTANT)
+    def __init__(self, value, alttokname, tkz):
+        self.value = value
+        self.alttokname = alttokname
+        self.tkz = tkz
+
+    def tokenfactory(self, tokid, value, location):
+        # the tokid will be ignored (e.g., might be DQUOTED)
+        # and replaced with a lookup of the alttokname
+        tokid = self.tkz.TokenID[self.alttokname]
+        return self.tkz.tokenfactory(tokid, value, location)
+
+
 class TokenMatchASMString(TokenMatch):
     """Take the <> brackets off an 'as' string."""
 
-    def matched(self, minfo, /):
-        v = minfo.value[1:-1]
+    def action(self, value, tkz, /):
+        v = value[1:-1]
         try:
             s = ASMTokenizer.str_deslash(v)
         except ValueError:
-            return minfo._replace(tokname='BAD',
-                                  value=f"bad string: **{v[1:-1]}**")
-        return minfo._replace(value=s)
+            return AltTokInfo(f"bad string: **{v}**", 'BAD', tkz)
+        return _TInfo(value=s)
 
 
 class TokenMatchASMConstant(TokenMatch):
     """Convert all the various integer formats; see _intcvt."""
 
-    def matched(self, minfo, /):
-        # note that because this is invoked for multiple token
-        # types (CONSTANT, DQUOTED, SQUOTED) it overrides the tokname
+    # In an older version of the tokenizer code it wasn't allowed to have
+    # multiple TokenMatch objects have the same tokname. That's why this
+    # uses AltTokInfo as a way to convert DQUOTED/SQUOTED into a CONSTANT
+    # token (which is what the higher level code wants to see).  This could
+    # now be done instead by eliminating DQUOTED/SQUOTED in the rules
+    # sequence (as this one action() method can convert all of them); however
+    # the AltTokInfo concept is still needed anyway (for strings --> BAD)
+    # so this has been left this way too.
+
+    def action(self, value, tkz, /):
+        # note that because this is invoked for multiple token types
+        # (CONSTANT, DQUOTED, SQUOTED) it uses AltTokInfo (see above)
         # so they are all CONSTANT after value conversion
-        return minfo._replace(value=ASMTokenizer._intcvt(minfo.value),
-                              tokname='CONSTANT')
+        return AltTokInfo(ASMTokenizer._intcvt(value), 'CONSTANT', tkz)
 
 
 class ASMTokenizer(Tokenizer):
@@ -94,7 +118,7 @@ class ASMTokenizer(Tokenizer):
         """Filter imposed on tokens in id8 mode; truncate long IDENTIFIERs."""
         for t in super().string_to_tokens(*args, **kwargs):
             if t.id == TokenID.IDENTIFIER:
-                t = Token(t.id, t.value[:8], t.origin, t.location)
+                t = Token(t.id, t.value[:8], t.location)
             yield t
 
     @staticmethod
@@ -188,8 +212,11 @@ _rules = [
     TokenMatch('DOLLAR', r'\$'),
     TokenMatch('COLON', r'\:'),
     TokenMatch('SEMICOLON', r'\;'),
+
+    # see comments in TokenMatchASMConstant re: SQUOTED/DQUOTED/CONSTANT
     TokenMatchASMConstant('SQUOTED', r"'((\\.)|.)"),
     TokenMatchASMConstant('DQUOTED', r'\"((\\.)|.){2}'),
+
     TokenMatchIgnore('COMMENT', r'/[^\n]*'),
     TokenMatch('COMMA', r','),
 
