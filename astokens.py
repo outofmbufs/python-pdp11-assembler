@@ -61,51 +61,37 @@ class TokenMatchASMConstant(TokenMatch):
         return AltTokInfo(newvalue, 'CONSTANT', tkz.TokenID, tkz.tokenfactory)
 
 
+class TokenMatchID8(TokenMatch):
+    """In "id8" mode, long identifiers are accepted but truncated."""
+    def action(self, value, tkz, /):
+        return _TInfo(value=value[:8])
+
+
 class ASMTokenizer(Tokenizer):
     """Lexical analysis on a textfile."""
 
-    def __init__(self, strings=None, /, *,
-                 srcname=None, startnum=1, id8=False):
+    def __init__(self, *args, id8=False, **kwargs):
         """Set up a Tokenizer; see tokens() to generate tokens.
 
         Arguments:
-           strings  -- should be an iterable of strings. Most commonly
-                       it is an open text file. It is used duck-typed as:
-                          for s in strings:
-                              ... tokenize s ...
-           srcname  -- for error reporting, but otherwise ignored.
-                       Usually should be specified as the input file name.
-
-           startnum -- for error reporting, but otherwise ignored.
-                       Each string in strings is assumed to be a separate
-                       line and will be numbered starting from this number.
-                       Default is 1. If None, line numbers left out.
+           Any Tokenizer argument -- see Tokenizer()
+           EXCEPT: the rules and the tokenIDs args are set here
 
            id8      -- Turn on strict 8-char identifier *significance*
 
         NOTE: To tokenize a SINGLE string s, do this:
            ASMTokenizer([s])
-
         """
 
-        super().__init__(_rules,
-                         strings,
-                         srcname=srcname,
-                         startnum=startnum,
-                         tokenIDs=TokenID)
-
+        # the normal rules or the "truncate identifiers" rules...
         if id8:
-            # this is quite the hack, but ... truncate IDENTIFIER tokens
-            # this way so that the TokenRules (and TokenIDs) can be common
-            # across instances but the id8 functionality is per-instance.
-            self.string_to_tokens = self.__id8   # override Tokenizer
+            rules = [r if r.tokname != 'IDENTIFIER'
+                     else TokenMatchID8(r.tokname, r.regexp)
+                     for r in _rules]
+        else:
+            rules = _rules
 
-    def __id8(self, *args, **kwargs):
-        """Filter imposed on tokens in id8 mode; truncate long IDENTIFIERs."""
-        for t in super().string_to_tokens(*args, **kwargs):
-            if t.id == TokenID.IDENTIFIER:
-                t = Token(t.id, t.value[:8], t.location)
-            yield t
+        super().__init__(rules, *args, tokenIDs=TokenID, **kwargs)
 
     @staticmethod
     def __deslash1(s):
