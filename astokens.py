@@ -21,28 +21,12 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, Token, _TInfo
+from tokenizer import Tokenizer, TokenMatch, Token, _TInfo, AltTokInfo
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 
 
 # some ASM-specific TokenMatch subclasses
-
-class AltTokInfo:
-    # This is used by some of the TokenMatch subclasses below when
-    # they need to change the token type that would be returned
-    # (e.g., a DQUOTED becomes a CONSTANT)
-    def __init__(self, value, alttokname, tkz):
-        self.value = value
-        self.alttokname = alttokname
-        self.tkz = tkz
-
-    def tokenfactory(self, tokid, value, location):
-        # the tokid will be ignored (e.g., might be DQUOTED)
-        # and replaced with a lookup of the alttokname
-        tokid = self.tkz.TokenID[self.alttokname]
-        return self.tkz.tokenfactory(tokid, value, location)
-
 
 class TokenMatchASMString(TokenMatch):
     """Take the <> brackets off an 'as' string."""
@@ -52,7 +36,8 @@ class TokenMatchASMString(TokenMatch):
         try:
             s = ASMTokenizer.str_deslash(v)
         except ValueError:
-            return AltTokInfo(f"bad string: **{v}**", 'BAD', tkz)
+            return AltTokInfo(
+                f"bad string: **{v}**", 'BAD', tkz.TokenID, tkz.tokenfactory)
         return _TInfo(value=s)
 
 
@@ -72,7 +57,8 @@ class TokenMatchASMConstant(TokenMatch):
         # note that because this is invoked for multiple token types
         # (CONSTANT, DQUOTED, SQUOTED) it uses AltTokInfo (see above)
         # so they are all CONSTANT after value conversion
-        return AltTokInfo(ASMTokenizer._intcvt(value), 'CONSTANT', tkz)
+        newvalue = ASMTokenizer._intcvt(value)
+        return AltTokInfo(newvalue, 'CONSTANT', tkz.TokenID, tkz.tokenfactory)
 
 
 class ASMTokenizer(Tokenizer):

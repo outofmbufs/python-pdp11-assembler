@@ -29,6 +29,27 @@ import re
 _TInfo = namedtuple('_TInfo', ['value', 'tokenfactory'], defaults=[None])
 
 
+# This is available for use when an action() method needs to
+# entirely switch out the token type that is being created.
+# To use:
+#    in the action() method instead of returning a _TInfo, return:
+#
+#     AltTokInfo(value, 'ALTNAME', tkz.tokenID, tkz.tokenfactory)
+#
+#    which will cause a token of type ALTNAME to be created
+#
+class AltTokInfo:
+    def __init__(self, value, alttokname, tokenID_enum, tokmaker):
+        self.value = value
+        self.alttokname = alttokname
+        self.tokenID_enum = tokenID_enum
+        self.tokmaker = tokmaker
+
+    def tokenfactory(self, tokid, value, location):
+        tokid = self.tokenID_enum[self.alttokname]
+        return self.tokmaker(tokid, value, location)
+
+
 # A TokenMatch combines a name (e.g., 'CONSTANT') with a regular
 # expression (e.g., r'-?[0-9]+'), and its action() method is part of
 # how subclasses can extend functionality (see docs or read examples below).
