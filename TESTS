@@ -20,7 +20,7 @@ do
     fi
 done
 
-echo RESULTS: $COUNT_GOOD passed, $COUNT_BAD failed.
+echo RESULTS: $COUNT_GOOD module suites passed, $COUNT_BAD failed.
 
 if [ x"$FAILS" != x ]
 then
