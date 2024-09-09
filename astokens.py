@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, Token, _TInfo, AltTokInfo
+from tokenizer import Tokenizer, TokenMatch, Token
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 
@@ -31,40 +31,29 @@ from tokenizer import TokenMatchIgnore
 class TokenMatchASMString(TokenMatch):
     """Take the <> brackets off an 'as' string."""
 
-    def action(self, value, tkz, /):
-        v = value[1:-1]
+    def action(self, val, loc, tkz, /):
+        v = val[1:-1]
+        name = self.tokname
         try:
             s = ASMTokenizer.str_deslash(v)
         except ValueError:
-            return AltTokInfo(
-                f"bad string: **{v}**", 'BAD', tkz.TokenID, tkz.tokenfactory)
-        return _TInfo(value=s)
+            s = f"bad string: **{v}**"
+            name = 'BAD'
+        return super().action(s, loc, tkz, name=name)
 
 
 class TokenMatchASMConstant(TokenMatch):
     """Convert all the various integer formats; see _intcvt."""
 
-    # In an older version of the tokenizer code it wasn't allowed to have
-    # multiple TokenMatch objects have the same tokname. That's why this
-    # uses AltTokInfo as a way to convert DQUOTED/SQUOTED into a CONSTANT
-    # token (which is what the higher level code wants to see).  This could
-    # now be done instead by eliminating DQUOTED/SQUOTED in the rules
-    # sequence (as this one action() method can convert all of them); however
-    # the AltTokInfo concept is still needed anyway (for strings --> BAD)
-    # so this has been left this way too.
-
-    def action(self, value, tkz, /):
-        # note that because this is invoked for multiple token types
-        # (CONSTANT, DQUOTED, SQUOTED) it uses AltTokInfo (see above)
-        # so they are all CONSTANT after value conversion
-        newvalue = ASMTokenizer._intcvt(value)
-        return AltTokInfo(newvalue, 'CONSTANT', tkz.TokenID, tkz.tokenfactory)
+    def _value(self, val, /):
+        return ASMTokenizer._intcvt(val)
 
 
 class TokenMatchID8(TokenMatch):
     """In "id8" mode, long identifiers are accepted but truncated."""
-    def action(self, value, tkz, /):
-        return _TInfo(value=value[:8])
+
+    def _value(self, val, /):
+        return val[:8]
 
 
 class ASMTokenizer(Tokenizer):
@@ -185,9 +174,11 @@ _rules = [
     TokenMatch('COLON', r'\:'),
     TokenMatch('SEMICOLON', r'\;'),
 
-    # see comments in TokenMatchASMConstant re: SQUOTED/DQUOTED/CONSTANT
-    TokenMatchASMConstant('SQUOTED', r"'((\\.)|.)"),
-    TokenMatchASMConstant('DQUOTED', r'\"((\\.)|.){2}'),
+    # in prior implementations these made DQUOTED/SQUOTED tokens
+    # but now ASMConstant can handle all formats and doesn't need
+    # those phantom token types to do it
+    TokenMatchASMConstant('CONSTANT', r"'((\\.)|.)"),
+    TokenMatchASMConstant('CONSTANT', r'\"((\\.)|.){2}'),
 
     TokenMatchIgnore('COMMENT', r'/[^\n]*'),
     TokenMatch('COMMA', r','),
