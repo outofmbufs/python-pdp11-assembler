@@ -358,7 +358,7 @@ class TokenMatchKeyword(TokenMatch):
 
        is equivalent to:
 
-            TokenMatch('IF', r'(if)[^a-zA-Z_0-9]*')
+            TokenMatch('IF', r'(if)(?![a-zA-Z0-9_])')
     """
     def __init__(self, tokname, regexp=None, *args, **kwargs):
         if regexp is None:
