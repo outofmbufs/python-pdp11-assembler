@@ -488,11 +488,14 @@ class ASMParser:
         TokenID.VSLASHES,
         TokenID.AMPERSAND,
         TokenID.BAR,
-        TokenID.RR,
-        TokenID.LL,
         TokenID.PERCENT,
         TokenID.BANG,
-        TokenID.CARET
+        TokenID.CARET,
+        # See: https://github.com/outofmbufs/python-pdp11-assembler/issues/2
+        # These are not implemented in unix v7 as because: reasons.
+        # They are not implemented here for the same reasons.
+        # TokenID.RR,
+        # TokenID.LL,
     )
 
     # Per the 'as' manual:

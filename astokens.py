@@ -153,7 +153,7 @@ _rules = [
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
     TokenMatchASMConstant('CONSTANT', r'-?[0-9]+\.?'),
-    TokenMatchASMString('STRING', r'<>|(<[^<][^>]*>)'),
+    TokenMatchASMString('STRING', r'<[^>]*>'),
     TokenMatch('LPAREN', r'\('),
     TokenMatch('RPAREN', r'\)'),
     TokenMatch('LBRA', r'\['),
@@ -165,8 +165,6 @@ _rules = [
     TokenMatch('VSLASHES', r'\\/'),
     TokenMatch('AMPERSAND', r'&'),
     TokenMatch('BAR', r'\|'),
-    TokenMatch('RR', r'>>'),
-    TokenMatch('LL', r'<<'),
     TokenMatch('PERCENT', r'%'),
     TokenMatch('BANG', r'\!'),
     TokenMatch('CARET', r'\^'),
@@ -307,17 +305,17 @@ if __name__ == "__main__":
         def test_strings(self):
             tx = ASMTokenizer()
 
-            for s, good in (
-                ("<>", True),
-                ("< <>", True),
-                ("< abcd1234 !@#$%^&*()+ !!~>", True),
-                ("<<>", False),
+            for s in (
+                "<>",
+                "< <>",
+                "< abcd1234 !@#$%^&*()+ !!~>",
+                "<<A>",
+                "<<>"
             ):
                 tokens = list(tx.string_to_tokens(s))
                 with self.subTest(s=s):
-                    if good:
-                        self.assertEqual(len(tokens), 1)
-                        self.assertEqual(tokens[0].id, TokenID.STRING)
-                        self.assertEqual(tokens[0].value, s[1:-1])
+                    self.assertEqual(len(tokens), 1)
+                    self.assertEqual(tokens[0].id, TokenID.STRING)
+                    self.assertEqual(tokens[0].value, s[1:-1])
 
     unittest.main()

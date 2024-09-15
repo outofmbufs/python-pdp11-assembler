@@ -272,8 +272,10 @@ class BinaryExpression(XNode):
         TokenID.VSLASHES: operator.floordiv,
         TokenID.AMPERSAND: operator.and_,
         TokenID.BAR: operator.or_,
-        TokenID.RR: operator.rshift,
-        TokenID.LL: operator.lshift,
+        # See: https://github.com/outofmbufs/python-pdp11-assembler/issues/2
+        # These are actually not implemented in unix v7 because: reasons.
+        #        TokenID.RR: operator.rshift,
+        #        TokenID.LL: operator.lshift,
         TokenID.PERCENT: operator.mod,
         TokenID.CARET: lambda a, b: a,
 
