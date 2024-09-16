@@ -541,6 +541,9 @@ class TestMethods(unittest.TestCase):
             ("bozo: mov r0,r1\nbonzo: mov r1, r2\njbr bonzo\n",
              [0o010001, 0o010102, 0o000776]),
 
+            # simple negative constant (which becomes a binary expression)
+            ("-1", [0o177777]),
+
             # expressions involving multiple temp labels (was a bug)
             (" 9f-8f ; 8: 111 ; 9: 222",
              [0o2, 0o111, 0o222]),
