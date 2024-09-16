@@ -84,6 +84,9 @@ class TestMethods(unittest.TestCase):
             az = AP.ASMParser(ASMTokenizer(io.StringIO(s)).tokens())
             self.firstpass_and_check(az)
             chunks = az.secondpass()
+            if not chunks and az.errors:
+                print(f"\nsimple_asm_check({s}):\n{az.errors}")
+                self.assertFalse("Got errors in second pass")
             bseq = bytes(itertools.chain.from_iterable(x[1] for x in chunks))
             self._words_compare(bseq, XNode._w2b(expected_words))
 
@@ -537,6 +540,10 @@ class TestMethods(unittest.TestCase):
             # basic jbr test
             ("bozo: mov r0,r1\nbonzo: mov r1, r2\njbr bonzo\n",
              [0o010001, 0o010102, 0o000776]),
+
+            # expressions involving multiple temp labels (was a bug)
+            (" 9f-8f ; 8: 111 ; 9: 222",
+             [0o2, 0o111, 0o222]),
 
             # jbr but with an expression on the branch target
             ("bozo: mov r0,r1\nmov r1, r2\njbr bozo+2\n",
