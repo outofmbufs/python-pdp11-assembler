@@ -604,8 +604,10 @@ class ASMParser:
         op = None
         right = None
 
-        # if the expression starts with an operator, there needs to be
-        # a dummy zero supplied on the left. E.g., !b becomes 0 ! b
+        # if the expression starts with an operator, there needs to be a
+        # dummy zero supplied on the left. E.g., !b becomes 0 ! b; more
+        # obscurely, negative constants such as '-4' are tokenized as
+        # <MINUS>, <CONSTANT> and become, e.g., 0 - 4 as a binary expression.
         if self._tk.peekif_IDmatches(self.EXPROPERATORS):
             left = Constant(0)
 
