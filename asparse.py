@@ -726,6 +726,7 @@ class ASMParser:
             'jcc': 'bcs',
             'jhis': 'bcs',
             'jcs': 'bcc',
+            'jes': 'bcc',
             'jlo': 'bcc',
             'jge': 'blt',
             'jgt': 'ble',
