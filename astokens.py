@@ -152,7 +152,7 @@ _rules = [
     TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
-    TokenMatchASMConstant('CONSTANT', r'-?[0-9]+\.?'),
+    TokenMatchASMConstant('CONSTANT', r'[0-9]+\.?'),
     TokenMatchASMString('STRING', r'<[^>]*>'),
     TokenMatch('LPAREN', r'\('),
     TokenMatch('RPAREN', r'\)'),
