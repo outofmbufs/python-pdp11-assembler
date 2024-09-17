@@ -669,6 +669,39 @@ class TestMethods(unittest.TestCase):
                                     0o016703, 0o000003, 0o000760])
 
     # various tests of branch squishing
+    def test_jbr_too_far(self):
+        s = "jeq foo; . = . + 512. ; foo: mov r1,r2\n"
+        result = (
+            [0o1002, 0o137, 0o1006] +
+            256 * [0] +
+            [0o010102]
+            )
+        self.simple_asm_check(s, result)
+
+    # this was a bug where branch squishing screwed up forward seg refs
+    def NOTYETtest_squish_segs(self):
+        # for example, a variable reference to data segment AFTER
+        # a text segment jbranch that will be squished
+        s_data = """
+           .text
+           jes clowns ; mov bozo,r0 ; clowns:  mov r1,r2
+           .data
+           bozo: 0
+        """
+
+        # same thing but bss variant
+        s_bss = """
+           .text
+           jes clowns ; mov bozo,r0 ; clowns:  mov r1,r2
+           .bss
+           bozo: . = . + 2
+        """
+        # from running unixv7 'as' (both data/bss strings same output)
+        expected = [0o103402, 0o016700, 0o000002, 0o010102, 0o000000]
+
+        self.simple_asm_check(s_data, expected)
+#        self.simple_asm_check(s_bss, expected)
+
     def test_squish_forward1(self):
         for dist in range(128):
             s = "jeq foo\n"

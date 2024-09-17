@@ -22,6 +22,7 @@
 
 from expression import XNode, Constant, Register
 from astokens import TokenID
+import asconstants
 import asx
 
 
@@ -364,9 +365,11 @@ class JBranch(Branch):
     #   to do with calculating the optimization. Everything here is
     #   what is needed for the non-optimized branch-around-a-jump case.
 
-    def __init__(self, opcode, negop, /, *, target=None, **kwargs):
+    def __init__(self, opcode, negopname, /, *, target=None, **kwargs):
         super().__init__(opcode, target=target, **kwargs)
-        self.negop = negop   # the negated form; NOTE: None for jbr
+
+        # the negated form; NOTE: None for jbr
+        self.negopname = negopname
 
         # NOTE: Inherited from Branch:
         #     opcode  -- will be the Bxx form e.g., beq opcode for jeq
@@ -375,7 +378,7 @@ class JBranch(Branch):
 
     @property
     def nbytes(self):
-        return 4 if self.negop is None else 6
+        return 4 if self.negopname is None else 6
 
     def byteseq(self):
 
@@ -415,21 +418,24 @@ class JBranch(Branch):
         if d < 0:
             d += 65536
 
-        # The JMP instruction with a PC-relative operand
-        jmp = 0o000100 | 0o67
-        if self.negop is None:          # the jbr case
-            return self._w2b([jmp, d])
+        # The JMP instruction with an ABSOLUTE operand ... although PC-rel
+        # seems a better choice, absolute is what v7 'as' does in this case.
+        jmp = 0o000100 | 0o37
+        locn = self.target.resolve().value
+        if self.negopname is None:          # the jbr case
+            return self._w2b([jmp, locn])
         else:
             # branch-negated around jmp to target.
             # NOTE: the +2 on negop is the displacement needed to
             #       get over the JMP and the operand (4 bytes total)
-            return self._w2b([self.negop + 2, jmp, d])
+            negop = asconstants.BRANCH_CODES[self.negopname]
+            return self._w2b([negop + 2, jmp, locn])
 
     def parse(self, az):
         if (x := az.parseexpr(errmsg="missing jbranch target")) is None:
             return None
         return JBranch(
-            self.opcode, self.negop, target=x, relseg=az.curseg)
+            self.opcode, self.negopname, target=x, relseg=az.curseg)
 
 
 class SOB(Branch):
