@@ -3,6 +3,17 @@
 FAILS=""
 TESTFILES="tokutil.py tokenizer.py astokens.py expression.py segment.py parsetests.py"
 
+# the tests that assemble the v7 'as' source and compare the results
+# to a known-good binary file (from running the assembly under simh/unix7)
+# can only be run if the source files for 'as' and the 'golden binaries'
+# are present... if this subdirectory exists it is presumed to contain them:
+
+V7_AS_TESTDIR="V7TEST"
+if [ -e $V7_AS_TESTDIR ]
+then
+    TESTFILES="$TESTFILES v7astest.py"
+fi
+
 COUNT_GOOD=0
 COUNT_BAD=0
 
