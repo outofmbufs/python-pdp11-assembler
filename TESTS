@@ -20,6 +20,11 @@ do
     fi
 done
 
+if [ $COUNT_BAD -eq 0 ]
+then
+    COUNT_GOOD="$COUNT_GOOD (all)"
+fi
+
 echo RESULTS: $COUNT_GOOD module suites passed, $COUNT_BAD failed.
 
 if [ x"$FAILS" != x ]
