@@ -232,7 +232,7 @@ class TestMethods(unittest.TestCase):
         for mode, toks in testvecs:
             with self.subTest(mode=mode, toks=toks):
                 az = AP.ASMParser(iter(toks))
-                rslt = Operand._parse1op(az, 6, 0)
+                rslt = Operand._parse1op(az, 6, False)
                 self.assertTrue(isinstance(rslt, Operand))
                 self.assertEqual(rslt.mode, mode)
 
@@ -259,7 +259,7 @@ class TestMethods(unittest.TestCase):
         for mode, s in testvecs:
             with self.subTest(mode=mode, s=s):
                 az = AP.ASMParser(ASMTokenizer([s]).tokens())
-                rslt = Operand._parse1op(az, 6, 0)
+                rslt = Operand._parse1op(az, 6, False)
                 self.assertTrue(isinstance(rslt, Operand))
                 self.assertEqual(rslt.mode, mode)
 
@@ -679,7 +679,7 @@ class TestMethods(unittest.TestCase):
         self.simple_asm_check(s, result)
 
     # this was a bug where branch squishing screwed up forward seg refs
-    def NOTYETtest_squish_segs(self):
+    def test_squish_segs(self):
         # for example, a variable reference to data segment AFTER
         # a text segment jbranch that will be squished
         s_data = """
@@ -700,7 +700,7 @@ class TestMethods(unittest.TestCase):
         expected = [0o103402, 0o016700, 0o000002, 0o010102, 0o000000]
 
         self.simple_asm_check(s_data, expected)
-#        self.simple_asm_check(s_bss, expected)
+        self.simple_asm_check(s_bss, expected)
 
     def test_squish_forward1(self):
         for dist in range(128):

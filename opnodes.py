@@ -74,8 +74,7 @@ class _OperN(_Opcode):
         # If there are two operands, then this parses both, with the
         # intervening COMMA token. Else just one operand is parsed.
 
-        pcadj = az.curseg.dot() + 4
-        src = Operand._parse1op(az, srcbits, pcadj)
+        src = Operand._parse1op(az, srcbits, False)
         if srcbits > 0:
             if src is None:
                 return None
@@ -85,9 +84,8 @@ class _OperN(_Opcode):
                 az.synerr(f"expected COMMA after first operand")
                 return None
 
-        if src is not None and src.idw is not None:
-            pcadj += 2
-        dst = Operand._parse1op(az, dstbits, pcadj)
+        prior_indexword = src is not None and src.idw is not None
+        dst = Operand._parse1op(az, dstbits, prior_indexword)
         if dst is None:
             return None
 
@@ -100,7 +98,11 @@ class _OperN(_Opcode):
         if not az.end_of_statement():
             return None
 
-        return self.__class__(self.opcode, *ops, relseg=az.curseg)
+        inst_node = self.__class__(self.opcode, *ops, relseg=az.curseg)
+        for opnode in ops:
+            opnode.instruction_node = inst_node
+
+        return inst_node
 
     @property
     def nbytes(self):
@@ -162,18 +164,19 @@ class RTS(OneOper):
 class Operand(XNode):
     """A single 6-bit operand with optional additional 16-bit data."""
 
-    def __init__(self, mode, pcadj, /, *, idw=None, pcrel=False, relseg=None):
+    def __init__(self, mode, prior_indexword, /, *,
+                 idw=None, pcrel=False, relseg=None):
         super().__init__(self.NOVALUE, relseg=relseg)
         self.mode = mode
         self.idw = idw
         self.pcrel = pcrel
-        self.pcadj = pcadj
+        self.prior_indexword = prior_indexword
 
         if self.pcrel and not self.idw:
             raise TypeError("pc-relative botch")
 
     @classmethod
-    def _parse1op(cls, az, modelim, pcadj):
+    def _parse1op(cls, az, modelim, prior_indexword):
         # modelim is 0, 3, or 6 depending on what types of operand are ok
         if modelim == 0:
             return None
@@ -289,7 +292,8 @@ class Operand(XNode):
             az.synerr("must be register direct")
             return None
 
-        return Operand(mode, pcadj, idw=idw, pcrel=pcrel, relseg=az.curseg)
+        return Operand(mode, prior_indexword,
+                       idw=idw, pcrel=pcrel, relseg=az.curseg)
 
     @classmethod
     def _getregval(cls, x):
@@ -314,7 +318,22 @@ class Operand(XNode):
             if node.relseg and self.relseg and (node.relseg != self.relseg):
                 val += (node.relseg.offset - self.relseg.offset)
             if self.pcrel:
-                val -= self.pcadj
+                # This could have been simplified but doing it step by step
+                # makes it possible to document/explain along the way...
+
+                adj = self.relseg.dot(after=self.instruction_node)
+
+                # adj is the pseudo-PC **after** this instruction; back it up
+                adj -= self.instruction_node.nbytes
+
+                # now add 4 back to get to the end of the first index word.
+                # (which is guaranteed to exist because self.idw is not None)
+                adj += 4
+
+                # finally, if this is actually the second index word...
+                if self.prior_indexword:
+                    adj += 2
+                val -= adj
             return self._w2b(val & 0xFFFF)
         else:
             return bytes()
@@ -441,7 +460,7 @@ class JBranch(Branch):
 class SOB(Branch):
 
     def parse(self, az):
-        regopr = Operand._parse1op(az, 3, 0)
+        regopr = Operand._parse1op(az, 3, False)
         if regopr is None:
             return None
         reg = regopr.mode
