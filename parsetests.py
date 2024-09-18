@@ -649,6 +649,15 @@ class TestMethods(unittest.TestCase):
         for s, xp in testvecs:
             self.simple_asm_check(s, xp)
 
+    # Because this is not named test_foo, it is not automatically
+    # invoked by the unittest module. It is here as a convenience for
+    # debugging specific test cases. Edit accordingly and invoke:
+    #     python3 parsetests.py TestMethods.debugtest
+    def debugtest(self):
+        s = "put test case here"
+        xp = [0o123456, 0o222222]       # put correct expected results here
+        self.simple_asm_check(s, xp)
+
     # this is just a trash-can test of some various things that haven't
     # worked right at one point or another, thrown together into one test
     def test_stuff(self):
