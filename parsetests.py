@@ -548,6 +548,11 @@ class TestMethods(unittest.TestCase):
             (" 9f-8f ; 8: 111 ; 9: 222",
              [0o2, 0o111, 0o222]),
 
+            # A howler side-effect of "adjacency is addition"
+            # This one is, in effect, 1 + 2 + x and assembles just
+            # fine under v7 'as' (and works here too)
+            (" x=4 ; 1 + 2x", [0o7]),
+
             # jbr but with an expression on the branch target
             ("bozo: mov r0,r1\nmov r1, r2\njbr bozo+2\n",
              [0o010001, 0o010102, 0o000776]),
