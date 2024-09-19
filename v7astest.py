@@ -92,19 +92,27 @@ if __name__ == '__main__':
         def test_asv7as(self):
             for i in (0, 1):
                 with self.subTest(passno=i+1):
-                    goldfile = open(self.GOLDS[i], 'rb')
-                    tokenizers = [
-                        ASMTokenizer(info.f, srcname=info.name).tokens()
-                        for info in self.gatherfiles(i+1)]
-                    az = ASMParser(itertools.chain(*tokenizers))
-                    if not az.firstpass():
-                        show_errors(az)
-                        assert False, "First pass failed"
-                    rslt = az.secondpass()
-                    if rslt is None or az.errors:
-                        show_errors(az)
-                        assert False, "Second pass failed"
-                    self.assertTrue(self.cmprslts(rslt, goldfile))
+                    openfiles = []
+                    try:
+                        infos = self.gatherfiles(i+1)
+                        goldfile = open(self.GOLDS[i], 'rb')
+                        openfiles = [info.f for info in infos]
+                        openfiles.append(goldfile)
+                        tokenizers = [
+                            ASMTokenizer(info.f, srcname=info.name).tokens()
+                            for info in infos]
+                        az = ASMParser(itertools.chain(*tokenizers))
+                        if not az.firstpass():
+                            show_errors(az)
+                            assert False, "First pass failed"
+                        rslt = az.secondpass()
+                        if rslt is None or az.errors:
+                            show_errors(az)
+                            assert False, "Second pass failed"
+                        self.assertTrue(self.cmprslts(rslt, goldfile))
+                    finally:
+                        for f in openfiles:
+                            f.close()
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--directory', default=SOURCEDIR)
@@ -113,6 +121,8 @@ if __name__ == '__main__':
     SOURCEDIR = args.directory
     GOLD = args.goldfiles
 
+    # don't want unittest.main() because don't want it interpreting args
+    # (instead of above interpretation). Was there a better/easier way?
     suite = unittest.TestSuite()
     suite.addTest(TestMethods('test_asv7as'))
     runner = unittest.TextTestRunner()
