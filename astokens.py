@@ -153,6 +153,8 @@ _rules = [
     TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
     TokenMatchASMConstant('CONSTANT', r'[0-9]+\.?'),
+    TokenMatch('LSHIFT', r'\\<'),
+    TokenMatch('RSHIFT', r'\\>'),
     TokenMatchASMString('STRING', r'<[^>]*>'),
     TokenMatch('LPAREN', r'\('),
     TokenMatch('RPAREN', r'\)'),

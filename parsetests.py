@@ -79,16 +79,25 @@ class TestMethods(unittest.TestCase):
     # ignoring segments/offsets.
     # NOTE: expected_words is 16-bit values which will be interpreted
     #       (regardless of native machine architecture) as big-endian.
+    # NOTE: expected_words can be None if result should be: syntax error
+    #
     def simple_asm_check(self, s, expected_words):
         with self.subTest(s=s):
             az = AP.ASMParser(ASMTokenizer(io.StringIO(s)).tokens())
-            self.firstpass_and_check(az)
+            ok = az.firstpass()
+            if expected_words is None:      # means a syntax error is expected
+                self.assertFalse(ok)
+                return az.errors
+            else:
+                self.assertTrue(ok)
+
             chunks = az.secondpass()
             if not chunks and az.errors:
                 print(f"\nsimple_asm_check({s}):\n{az.errors}")
                 self.assertFalse("Got errors in second pass")
             bseq = bytes(itertools.chain.from_iterable(x[1] for x in chunks))
             self._words_compare(bseq, XNode._w2b(expected_words))
+            return None
 
     def test_undefsym(self):
         s = "mov $foo,r0\n"
@@ -391,6 +400,20 @@ class TestMethods(unittest.TestCase):
         s = "bozo: clr r0\nbozo:clr r1\n"
         az = AP.ASMParser(ASMTokenizer(io.StringIO(s)).tokens())
         self.assertFalse(az.firstpass())
+
+    # separate test if only because this was discovered later by reading
+    # the v7 'as' source: the LSHIFT and RSHIFT expression operators *are*
+    # implemented, but not w/ '<<' and '>>' but rather as escaped \< and \>
+    # This could have been just a string in test_simplestrings but seemed
+    # worth of its own new/separate test.
+    def test_shifts(self):
+        for s, expected in (
+                (r'1 \< 3', [0o10]),
+                (r'010 \> 3', [1]),
+                (r'1 < 3', None),          # expecting syntax error
+                (r'4 > 1', None),          # expecting syntax error
+        ):
+            self.simple_asm_check(s, expected)
 
     def test_string(self):
         s = "<\0> ; .byte 77"

@@ -481,22 +481,7 @@ class ASMParser:
         return self.symtab.ref_symbol(last.name)
 
     # all the operators that can appear in an expr
-    EXPROPERATORS = (
-        TokenID.PLUS,
-        TokenID.MINUS,
-        TokenID.STAR,
-        TokenID.VSLASHES,
-        TokenID.AMPERSAND,
-        TokenID.BAR,
-        TokenID.PERCENT,
-        TokenID.BANG,
-        TokenID.CARET,
-        # See: https://github.com/outofmbufs/python-pdp11-assembler/issues/2
-        # These are not implemented in unix v7 as because: reasons.
-        # They are not implemented here for the same reasons.
-        # TokenID.RR,
-        # TokenID.LL,
-    )
+    EXPROPERATORS = tuple(BinaryExpression.BINOPS)
 
     # Per the 'as' manual:
     #   * An expression is a sequence of symbols representing a value.
