@@ -738,6 +738,12 @@ class ASMParser:
         builtin('.if', pseudops.PSIf())
         builtin('.endif', pseudops.PSEndif())
 
+        # because this is just a standalone assembler (no symtab, no linker)
+        # the .globl directive doesn't do anything, but accept it so that
+        # raw v7 sources that use it can be assembled (this is mostly helpful
+        # for testing fidelity against v7 results)
+        builtin('.globl', pseudops.PSIgnore())
+
         # these two are not in 'as' but are helpful standalone without 'ld'
         builtin('.org', pseudops.SegmentOps(0))
         builtin('.boundary', pseudops.SegmentOps(1))

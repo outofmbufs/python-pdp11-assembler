@@ -139,6 +139,13 @@ class PSEndif(PseudoOp):
         return None
 
 
+class PSIgnore(PseudoOp):
+    # for things like .globl that will be accepted but just ignored.
+    def parse(self, az):
+        while not az._tk.peekif_IDmatches(STMT_ENDS):
+            az._tk.gettok()
+
+
 class BytesBlob(XNode):
     """Arbitrary number of bytes, as a blob."""
     @property
