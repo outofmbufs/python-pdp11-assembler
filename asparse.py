@@ -31,8 +31,9 @@ import asx
 import opnodes
 import pseudops
 
-from astokens import Token, TokenID, STMT_ENDS
+from tokenizer import Token, TokLoc
 from tokutil import TokStreamEnhancer
+from astokens import TokenID, STMT_ENDS
 from expression import XNode, Constant, Register, BinaryExpression
 from segment import Segment
 from symtab import SymbolTable
@@ -69,8 +70,8 @@ class ASMParser:
         # for an implied token (NEWLINE in this case) at EOF which helps
         # because Unix v7 'as' treats an EOF *anywhere* as an implied newline.
         # Subclass (defined in this file) TokensPlus adds peekif_IDmatches().
-        NLtok = Token(TokenID.NEWLINE, "\n", "EOF-induced-newline")
-        EOFtok = Token(TokenID.EOF, None, "EOF")
+        NLtok = Token(TokenID.NEWLINE, "\n", TokLoc("EOF-induced-newline"))
+        EOFtok = Token(TokenID.EOF, None, TokLoc("EOF"))
         self._tk = TokensPlus(tokens, lasttok=NLtok, eoftok=EOFtok)
 
     def firstpass(self):
@@ -347,20 +348,23 @@ class ASMParser:
             return None
 
         if name == '.':
-            try:
-                # the expression must not contain forward references
-                # and when evaluated must be greater than the current dot()
-                # The current segment will be padded with zeros accordingly.
-                val = x.resolve().value
-                dot = self.curseg.dot()
-                if val < dot:
-                    raise ValueError(". cannot go backwards")
-                if val > dot:
-                    return pseudops.BytesBlob(bytes([0] * (val - dot)))
-            except ValueError as e:
-                self.synerr(str(e))
-            else:
-                return None
+            # v7 disallows forward references here even if they
+            # are (eventually) absolute. This must be resolvable now.
+            val = x.resolve().value    # can raise asx._UndefinedSymbol
+
+            # DOT cannot go "backwards" but the definition of that
+            # is subtle. It certainly cannot go backwards in the absolute
+            # sense; however, v7 'as' also considers it to have gone
+            # "backwards" if it goes forwards by 32768 or more.
+
+            # and when evaluated must be greater than the current dot()
+            # The current segment will be padded with zeros accordingly.
+            dot = self.curseg.dot()
+            if val < dot:
+                raise ValueError(". cannot go backwards")
+            if val > dot:
+                return pseudops.BytesBlob(bytes([0] * (val - dot)))
+
 
         # By default, the 'as' semantic is that only one level of forward
         # referencing is allowed. This enforces that unless STRICTFWD
@@ -649,7 +653,7 @@ class ASMParser:
                 else:
                     msg = f"Line {t0.location.lineno}: "
             elif t0.value is not None:
-                msg = f"At {t0.value}: "
+                msg = f"At {t0.value!r}: "
             else:
                 msg = ""
         msg += info
