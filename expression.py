@@ -155,6 +155,10 @@ class XNode:
         """Generic symref; no symbols referenced."""
         return []
 
+    def pass2start(self, az):
+        """Called after pass1 and before pass2 begins. Default: no-op."""
+        return True
+
     def __repr__(self):
         s = f"{self.__class__.__name__}("
         sep = ""

@@ -156,34 +156,35 @@ class BytesBlob(XNode):
         return self.value
 
 
-class SegmentOps(PseudoOp):
+class _SegmentOps(PseudoOp):
     """The .org and .boundary directives"""
     nbytes = 0
-
-    # __init__ NOTE:
-    # When buildsymtab populates the symbol table for .org and .boundary
-    # it sets the .value of the .org to zero and the value of the .boundary
-    # to non-zero (specific value does not matter). This is used to distinguish
-    # the two different types of operation which otherwise have nearly
-    # identical coding as can be seen below in parse().
-    # No subclass-specific __init__ is necessary.
 
     def parse(self, az):
         x = az.parseexpr()
         if x is None:
             return None
         node = self.clone(x)
-        node.roundup = (self.value != 0)    # see note about __init__
         node.segment = az.curseg
-        node.value = x
+        return node
 
-        # actual execution of this request has to be deferred until
-        # all symbols are defined, so this registers the node to be
-        # called during the second pass.
-        az.tweener(node)
-
-    def __call__(self):
-        """Called during the second pass."""
-        self.segment.origindirective(self.value.resolve().value,
-                                     roundup=self.roundup)
+    def pass2start(self, az):
+        """Called during the BEGINNING of the second pass."""
+        self.segment.origindirective(
+            self.value.resolve().value, roundup=self.ROUNDUP)
         return True
+
+
+class Org(_SegmentOps):
+    ROUNDUP = False
+
+    @classmethod
+    def implicit_org(cls, val, az):
+        org = az.symtab['.org']
+        node = org.value.clone(val)
+        node.segment = az.curseg
+        return node
+
+
+class Boundary(_SegmentOps):
+    ROUNDUP = True

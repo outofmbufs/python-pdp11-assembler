@@ -60,13 +60,10 @@ class ASMParser:
         self.symtab = self._buildsymtab()   # populate all the built-ins
 
         # standard TEXT/DATA/BSS segments w/.text as current/default
-        self.segmentnames = ['.text', '.data', '.bss']
-        self.segments = {k: Segment(k) for k in self.segmentnames}
-        self.curseg = self.segments[self.segmentnames[0]]
+        self.segments = {k: Segment(k) for k in ('.text', '.data', '.bss')}
+        self.curseg = self.segments['.text']
 
         self._uniquegen = itertools.count()    # for temp labels
-
-        self._tweens = []                      # callbacks "between" p1/p2
 
         # TokStreamEnhancer adds pushback, mark/accept, and allows
         # for an implied token (NEWLINE in this case) at EOF which helps
@@ -167,41 +164,27 @@ class ASMParser:
         dataseg = self.segments['.data']
         bssseg = self.segments['.bss']
 
-        # '..' handling. Here's what the 'as' docs say:
-        #    Thus the value of ‘‘..’’ can be taken to mean the starting
-        #    core location of the program. In UNIX systems with relocation
-        #    hardware, the initial value of ‘‘..’’ is 0. The value of ‘‘..’’
-        #    may be changed by assignment.
-        #
-        # Grepping the entire unix v7 source base, it appears the only
-        # place this is used is in cmd/standalone/mtboot.s to set the
-        # program to run in high memory. This implementation of dotdot
-        # matches the *necessary* 'as' semantics but does not match the
-        # full-implementation detail semantics.
-        dotdot = self.symtab['..'].value.resolve().value
-        if dotdot != 0:
-            textseg.origindirective(dotdot)
-
         self.squishbranches(textseg)
         # believe it or not, sometimes code is in the dataseg...
         self.squishbranches(dataseg)
 
-        # The SegmentOps get called now, sort of "between" passes
-        # (more like "during" the second, but so be it)
-        for tween in self._tweens:
-            if not tween():
-                self.errors.append(f"tweener problem")
+        # set all the offsets. First give the various nodes an opportunity
+        # to do post-phase1 / pre-phase2 stuff. For example: SegmentOps
+        for node in itertools.chain(textseg, dataseg, bssseg):
+            if not node.pass2start(self):
+                return None
 
         # now that the segment sizes and any .org/.boundary are known,
         # combine the segments with appropriate offsets.
-
-        try:
-            textseg.setoffset(0)           # could be higher if .org used
-            dataseg.setoffset(textseg.offset + textseg.dot())
-            bssseg.setoffset(dataseg.offset + dataseg.dot())
-        except ValueError:
-            self.errors.append(f"Conflicting segment sizes/directives")
-            return None
+        curoff = 0
+        for seg in (textseg, dataseg, bssseg):
+            try:
+                seg.setoffset(curoff)
+            except ValueError:
+                self.errors.append(f"Conflicting segment sizes/directives")
+                return None
+            else:
+                curoff = seg.offset + seg.dot()
 
         # last, but not least: generate the bytes for each segment!
         rslt = []
@@ -293,8 +276,7 @@ class ASMParser:
 
         if t1.id == TokenID.EQ and t0.id == TokenID.IDENTIFIER:
             self._tk.gettoks(2)     # eat up the identifier and '='
-            self.assign(t0)
-            node = None
+            node = self.assign(t0)
         elif t0.id == TokenID.STRING:       # <string>
             node = StringData(t0.value, tok=t0)
             self._tk.gettok()
@@ -362,7 +344,7 @@ class ASMParser:
         name = dst.value
 
         if (x := self.parseexpr(errmsg="missing expression")) is None:
-            return
+            return None
 
         if name == '.':
             try:
@@ -374,12 +356,11 @@ class ASMParser:
                 if val < dot:
                     raise ValueError(". cannot go backwards")
                 if val > dot:
-                    self.curseg.addnode(
-                        pseudops.BytesBlob(bytes([0] * (val - dot))))
+                    return pseudops.BytesBlob(bytes([0] * (val - dot)))
             except ValueError as e:
                 self.synerr(str(e))
             else:
-                return
+                return None
 
         # By default, the 'as' semantic is that only one level of forward
         # referencing is allowed. This enforces that unless STRICTFWD
@@ -398,8 +379,25 @@ class ASMParser:
                     prior_undef = False
                 if prior_undef:
                     self.synerr("multiple forward reference")
-                    return
+                    return None
         self.symtab.add_symbol(name, x)
+
+        # Assigning to '..' has special semantics. It is, in effect
+        # a .org in the .text segment. Here's what the 'as' docs say:
+        #    Thus the value of ‘‘..’’ can be taken to mean the starting
+        #    core location of the program. In UNIX systems with relocation
+        #    hardware, the initial value of ‘‘..’’ is 0. The value of ‘‘..’’
+        #    may be changed by assignment.
+
+        if name == '..':
+            #
+            # Grepping the entire unix v7 source base, it appears the only
+            # place this is used is in cmd/standalone/mtboot.s to set the
+            # program to run in high memory. This implementation of dotdot
+            # matches the *necessary* 'as' semantics but does not match the
+            # full-implementation detail semantics.
+            dotdot = self.symtab['..'].value.resolve()
+            return pseudops.Org.implicit_org(dotdot, self)
 
     # Temporary (meta) labels.
     #
@@ -635,10 +633,6 @@ class ASMParser:
             self._tk.gettok()
         return False
 
-    def tweener(self, cb):
-        """Register a callback to be invoked during secondpass."""
-        self._tweens.append(cb)
-
     def synerr(self, info):
         """Report a syntax error."""
 
@@ -745,8 +739,8 @@ class ASMParser:
         builtin('.globl', pseudops.PSIgnore())
 
         # these two are not in 'as' but are helpful standalone without 'ld'
-        builtin('.org', pseudops.SegmentOps(0))
-        builtin('.boundary', pseudops.SegmentOps(1))
+        builtin('.org', pseudops.Org())
+        builtin('.boundary', pseudops.Boundary())
 
         # See secondpass; '..' is essentially a .org in .text
         # It starts at zero. It can be assigned. In unix v7 the only
