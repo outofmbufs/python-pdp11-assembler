@@ -451,6 +451,41 @@ class TestMethods(unittest.TestCase):
         self.full_asm_check(s, [(0, bytes([66, 16])),
                                 (8192, bytes([1, 0]))])
 
+    def test_dotgood(self):
+        simplecases = (
+            # just up to the edge of the max
+            (". = . + 32766.", [0o0] * (32766//2)),
+
+            # over the max but incrementally, which is allowed
+            (". = . + 32766. ; . = .+6", [0o0] * ((32766+6)//2)),
+
+            # same but with gratuitous code bringing the whole
+            # thing across the sign bit (but still ok)
+            ("clr r1; clr r2; . = . + 32766. ; . = .+6",
+             [0o5001, 0o5002] + [0o0] * ((32766+6)//2)),
+
+            # contrived example code
+            ("mov $.,r0\n . = . + 3; . = . + 1\nmov $.,r1\n",
+             [0o012700, 0, 0, 0, 0o012701, 8]),
+
+            # just double-checking multiple dots
+            ("clr r1; . = . + 4; .data; . = . + 16.; 17",
+             [0o5001, 0, 0] + [0]*8 + [0o17]),
+        )
+        for s, xp in simplecases:
+            self.simple_asm_check(s, xp)
+
+    def test_dotbad(self):
+        # dot arithmetic that is disallowed because backwards, or,
+        # considered backwards by v7 'as' because 16-bit signed wrap
+        bad = (
+            ". = . + 32768.",
+            "clr r1; clr r2; . = . + 32768.",
+            ". = 100; . = . - 4",
+        )
+        for s in bad:
+            self.simple_asm_check(s, None)
+
     def test_dotdot(self):
         s = ".. = 40000; mov r1,r2; bozo: mov r1,r3; mov $bozo,r4"
         self.simple_asm_check(s, [0o010102, 0o010103, 0o012704, 0o40002])
@@ -616,10 +651,6 @@ class TestMethods(unittest.TestCase):
                 .even
                 clr r0
             """, [0o062157, 0o144, 0o005000]),
-
-            # dot
-            ("mov $.,r0\n . = . + 3; . = . + 1\nmov $.,r1\n",
-             [0o012700, 0, 0, 0, 0o012701, 8]),
 
             # this was a silly bug at an early stage: the second reference
             # to a not-yet-defined variable would fail. Meh. Test it.
