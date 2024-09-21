@@ -792,6 +792,23 @@ class TestMethods(unittest.TestCase):
             expected += [0o777]
             self.simple_asm_check(s, expected)
 
+    def test_squish_pathology(self):
+        # this pathological case the algorithm finds all the squishes
+        # whereas on unix v7 'as' only finds 1 squish (!)
+
+        n = 64                # determined empirically
+        s = "start:\n"
+        for i in range(n):
+            s += f"jbr X{i:04d}\n"
+
+        for i in range(n):
+            s += f"X{i:04d}: jbr start\n"
+
+        expected = [0o477] * n
+        for i in range(n):
+            expected.append(0o677 - i)
+        self.simple_asm_check(s, expected)
+
     def test_squish_mixedN(self):
         for dist in range(125):    # can't go as far as fwd, because reasons
             s = "start: jeq foo\n"
