@@ -36,7 +36,6 @@ class SymbolTable:
         name: str
         value: typing.Optional[XNode]
         symtab: typing.TypeVar('SymbolTable')
-        builtin: bool = False   # has no semantics but helpful for debugging
 
         def _cyclic(self, loops):
             # recursively examine the symrefs for circular definitions
@@ -96,8 +95,8 @@ class SymbolTable:
     def sym_defined(self, name):
         return name in self.symbols and self.symbols[name].value is not None
 
-    def add_symbol(self, name, value=None, builtin=False):
-        self.symbols[name] = self.SymEntry(name, value, self, builtin=builtin)
+    def add_symbol(self, name, value=None):
+        self.symbols[name] = self.SymEntry(name, value, self)
 
     def ref_symbol(self, name):
         if name not in self.symbols:

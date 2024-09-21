@@ -671,9 +671,6 @@ class ASMParser:
     def _buildsymtab(self):
         symtab = SymbolTable()
 
-        # convenience so builtin doesn't have be specified every time
-        builtin = functools.partial(symtab.add_symbol, builtin=True)
-
         opcodes_and_xnodes = (
             (asconstants.REGISTERS, Register),
             (asconstants.SINGLEOPERANDS, opnodes.OneOper),
@@ -686,14 +683,14 @@ class ASMParser:
 
         for codes, xn in opcodes_and_xnodes:
             for name, opcode in codes.items():
-                builtin(name, xn(opcode))
+                symtab.add_symbol(name, xn(opcode))
 
         # 'sys' is really a TRAP instruction. Adjacency-addition for trap #
-        builtin('sys', Constant(0o104400))
+        symtab.add_symbol('sys', Constant(0o104400))
 
         # SOB and RTS are their each their own special thing
-        builtin('sob', opnodes.SOB(0o077000))
-        builtin('rts', opnodes.RTS(0o000200))
+        symtab.add_symbol('sob', opnodes.SOB(0o077000))
+        symtab.add_symbol('rts', opnodes.RTS(0o000200))
 
         # the pseudo-branches. For each pseudo-branch there is:
         #     * an "optimized" opcode -- the br-equivalent form
@@ -726,30 +723,30 @@ class ASMParser:
                 bopcode = asconstants.BRANCH_CODES['br']
             else:
                 bopcode = asconstants.BRANCH_CODES['b' + jb[1:]]
-            builtin(jb, opnodes.JBranch(bopcode, bneg))
+            symtab.add_symbol(jb, opnodes.JBranch(bopcode, bneg))
 
         # Pseudo operations
         for segname in ('.text', '.data', '.bss'):
-            builtin(segname, pseudops.PSSegment(segname))
-        builtin('.byte', pseudops.PSByte())
-        builtin('.even', pseudops.EvenBlob())
-        builtin('.if', pseudops.PSIf())
-        builtin('.endif', pseudops.PSEndif())
+            symtab.add_symbol(segname, pseudops.PSSegment(segname))
+        symtab.add_symbol('.byte', pseudops.PSByte())
+        symtab.add_symbol('.even', pseudops.EvenBlob())
+        symtab.add_symbol('.if', pseudops.PSIf())
+        symtab.add_symbol('.endif', pseudops.PSEndif())
 
         # because this is just a standalone assembler (no symtab, no linker)
         # the .globl directive doesn't do anything, but accept it so that
         # raw v7 sources that use it can be assembled (this is mostly helpful
         # for testing fidelity against v7 results)
-        builtin('.globl', pseudops.PSIgnore())
+        symtab.add_symbol('.globl', pseudops.PSIgnore())
 
         # these two are not in 'as' but are helpful standalone without 'ld'
-        builtin('.org', pseudops.Org())
-        builtin('.boundary', pseudops.Boundary())
+        symtab.add_symbol('.org', pseudops.Org())
+        symtab.add_symbol('.boundary', pseudops.Boundary())
 
         # See secondpass; '..' is essentially a .org in .text
         # It starts at zero. It can be assigned. In unix v7 the only
         # known place this is done is in the machine-dependent boot code.
-        builtin('..', Constant(0))
+        symtab.add_symbol('..', Constant(0))
         return symtab
 
 
