@@ -348,23 +348,21 @@ class ASMParser:
             return None
 
         if name == '.':
-            # v7 disallows forward references here even if they
-            # are (eventually) absolute. This must be resolvable now.
-            val = x.resolve().value    # can raise asx._UndefinedSymbol
-
-            # DOT cannot go "backwards" but the definition of that
-            # is subtle. It certainly cannot go backwards in the absolute
-            # sense; however, v7 'as' also considers it to have gone
-            # "backwards" if it goes forwards by 32768 or more.
-
-            # and when evaluated must be greater than the current dot()
-            # The current segment will be padded with zeros accordingly.
-            dot = self.curseg.dot()
-            if val < dot:
-                raise ValueError(". cannot go backwards")
-            if val > dot:
-                return pseudops.BytesBlob(bytes([0] * (val - dot)))
-
+            try:
+                # the expression must not contain forward references
+                # and when evaluated must be greater than the current dot()
+                # The current segment will be padded with zeros accordingly.
+                val = x.resolve().value
+                dot = self.curseg.dot()
+                if val < dot or val - dot > 32767:
+                    self.synerr(". cannot go backwards", location=dst.location)
+                    return None
+                if val > dot:
+                    return pseudops.BytesBlob(bytes([0] * (val - dot)))
+            except ValueError as e:
+                self.synerr(str(e))
+            else:
+                return None
 
         # By default, the 'as' semantic is that only one level of forward
         # referencing is allowed. This enforces that unless STRICTFWD
@@ -637,8 +635,8 @@ class ASMParser:
             self._tk.gettok()
         return False
 
-    def synerr(self, info):
-        """Report a syntax error."""
+    def synerr(self, info, location=None):
+        """Report a syntax error. If location given, use that else implied."""
 
         if self.completedstage == self.STAGE.PASS1:
             msg = "Parsing complete - "
@@ -646,12 +644,14 @@ class ASMParser:
             msg = "End of file - "
         else:
             t0 = self._tk.peektok()
-            if t0.location.lineno is not None:
-                if t0.location.sourcename is not None:
-                    msg = f"'{t0.location.sourcename}' - "
-                    msg += f"line {t0.location.lineno}: "
+            if location is None:
+                location = t0.location
+            if location.lineno is not None:
+                if location.sourcename is not None:
+                    msg = f"'{location.sourcename}' - "
+                    msg += f"line {location.lineno}: "
                 else:
-                    msg = f"Line {t0.location.lineno}: "
+                    msg = f"Line {location.lineno}: "
             elif t0.value is not None:
                 msg = f"At {t0.value!r}: "
             else:
