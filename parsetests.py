@@ -810,7 +810,7 @@ class TestMethods(unittest.TestCase):
         self.simple_asm_check(s, expected)
 
     def test_squish_mixedN(self):
-        for dist in range(125):    # can't go as far as fwd, because reasons
+        for dist in range(126):    # can only get to here (unix v7 'as' too)
             s = "start: jeq foo\n"
             expected = [0o001400 + dist]
             for i in range(dist):
@@ -819,6 +819,22 @@ class TestMethods(unittest.TestCase):
             s += "foo: 777"
             expected += [0o777]
             self.simple_asm_check(s, expected)
+
+    def test_squish_mixed127(self):
+        # 'expected' in this test verified against unix v7 'as'
+        dist = 127
+        s = "start: jeq foo\n"
+        expected = [0o1002, 0o137, 0o414]
+        for i in range(dist):
+            s += "jeq start\n"
+            br = 0o001774 - i
+            if br >= 0o001600:
+                expected += [br]
+            else:
+                expected += [ 0o1002, 0o137, 0o0 ]
+        s += "foo: 777"
+        expected += [0o777]
+        self.simple_asm_check(s, expected)
 
     # as-specific and often-surprising semantics
     def test_as_semantics(self):
