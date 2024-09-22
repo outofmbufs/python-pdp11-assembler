@@ -340,9 +340,10 @@ class Branch(_Opcode):
         self.target = target
 
     def _distance(self):
-        # Branching across segments is disallowed
+        # Branching across segments is disallowed even if it "fits"
         if self.target.resolve().relseg != self.relseg:
-            raise asx._IllegalBranch("cross-segment branch", node=self)
+            raise asx._IllegalBranch(
+                "cross-segment branch (use jmp)", node=self)
 
         there = self.target.resolve().value
         here = self.relseg.dot(after=self)

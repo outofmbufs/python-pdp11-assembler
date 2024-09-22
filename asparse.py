@@ -131,6 +131,9 @@ class ASMParser:
         # There are many places an _Alignment or others can be discovered...
         try:
             return self._secondpass()
+        except asx._IllegalBranch as e:
+            self.errors.append(self.error_location(e.node.tok) + e.msg)
+            return None
         except asx._ASX as e:
             self.errors.append(repr(e))
             return None
@@ -248,8 +251,10 @@ class ASMParser:
                     dist -= (xn.nbytes - 2)
 
                 if dist >= -256 and dist <= 254:
-                    br = opnodes.Branch(
-                        xn.opcode, target=xn.target, relseg=xn.relseg)
+                    br = opnodes.Branch(xn.opcode,
+                                        target=xn.target,
+                                        relseg=xn.relseg,
+                                        tok=xn.tok)
                     seg.replacenode(xn, br)
                 else:
                     new_jb.append(xn)
@@ -662,20 +667,23 @@ class ASMParser:
             msg = "End of file - "
         else:
             t0 = self._tk.peektok()
-            if location is None:
-                location = t0.location
-            if location.lineno is not None:
-                if location.sourcename is not None:
-                    msg = f"'{location.sourcename}' - "
-                    msg += f"line {location.lineno}: "
-                else:
-                    msg = f"Line {location.lineno}: "
-            elif t0.value is not None:
-                msg = f"At {t0.value!r}: "
+            msg = self.error_location(t0, location)
+        self.errors.append(msg + info)
+
+    def error_location(self, tok=None, location=None):
+        if location is None:
+            location = tok.location
+
+        if location.lineno is not None:
+            if location.sourcename is not None:
+                return (f"'{location.sourcename}' - " +
+                        f"line {location.lineno}: ")
             else:
-                msg = ""
-        msg += info
-        self.errors.append(msg)
+                return f"Line {location.lineno}: "
+        elif tok is not None and tok.value is not None:
+            return f"At {tok.value!r}: "
+        else:
+            return ""
 
     def synerr_unexpected(self, bogon=None):
         if bogon is None:
