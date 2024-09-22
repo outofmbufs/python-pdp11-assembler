@@ -110,11 +110,18 @@ class Segment:
         """Run through all nodes to get the _dots set up"""
         self._dots = list(itertools.accumulate(x.nbytes for x in self._nodes))
 
-    def dot(self, *, after=None):
-        """Return dot value after the given node (or at end if None)."""
+    def dot(self, *, after=None, before=None):
+        """Return dot value after/before a node (or at end if None)."""
 
         if not self._dots:
             self._computedots()
+
+        if before and after:
+            raise ValueError("cannot specify both before and after")
+
+        # "before" is implemented as after, adjusted
+        if after is None:
+            after = before
 
         # If after is None, use the last node. The result is zero
         # if there are no nodes.
@@ -130,7 +137,10 @@ class Segment:
         except (ValueError, TypeError):
             raise KeyError(f"dot(): {after} not found") from None
 
-        return self._dots[afterindex]
+        d = self._dots[afterindex]
+        if before:
+            d -= before.nbytes
+        return d
 
     def byteseq(self):
         """Return the full byte sequence from every node in the segment"""
@@ -187,6 +197,17 @@ if __name__ == "__main__":
 
             for i, xn in enumerate(nodes):
                 self.assertEqual(seg.dot(after=xn), nodesize * (i + 1))
+
+        def test_dotbefore(self):
+            seg = Segment()
+            nodes = [_XNode(0, sz=i*2) for i in range(10)]
+            for xn in nodes:
+                seg.addnode(xn)
+
+            expected = 0
+            for xn in nodes:
+                self.assertEqual(seg.dot(before=xn), expected)
+                expected += xn.nbytes
 
         # test cases where node not found by dot and segment is empty
         def test_dot_notfound_after0(self):

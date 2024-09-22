@@ -225,34 +225,34 @@ class ASMParser:
         # As written, this algorithm outsquishes v7 'as' in some hand-tested
         # pathological cases and (so far) has not been found to miss any
         # squishes that v7 'as' finds.
+        #
+        # NOTE: loop carefully avoids modifying jb while looping over it...
 
-        # NOTE: loop carefully avoids modifying seg while looping over it...
-        while True:
-            squish_these = []
-            for xn in seg:
-                if isinstance(xn, opnodes.JBranch):
-                    targval = xn.target.resolve().value
-                    here = seg.dot(after=xn) - xn.nbytes   # to get "before"
+        jb = None
+        new_jb = [node for node in seg if isinstance(node, opnodes.JBranch)]
+        while new_jb != jb:
+            jb, new_jb = new_jb, []
+            for xn in jb:
+                targval = xn.target.resolve().value
+                here = seg.dot(before=xn)
 
-                    # branch offsets are calculated as relative to the PC
-                    # AFTER the branch instruction itself is fetched, which
-                    # is why it's tarval - (here + 2) not just "here".
-                    dist = targval - (here + 2)
+                # branch offsets are calculated as relative to the PC
+                # AFTER the branch instruction itself is fetched, which
+                # is why it's targval - (here + 2) not just "here".
+                dist = targval - (here + 2)
 
-                    # but as if that isn't complicated enough, if the branch
-                    # is FORWARD then there is the advantage that the 4 or
-                    # 6 byte jbr/jCC construction will become a 2 byte branch.
-                    if dist > 0:
-                        dist -= (xn.nbytes - 2)
+                # but as if that isn't complicated enough, if the branch
+                # is FORWARD then there is the advantage that the 4 or
+                # 6 byte jbr/jCC construction will become a 2 byte branch.
+                if dist > 0:
+                    dist -= (xn.nbytes - 2)
 
-                    if dist >= -256 and dist <= 254:
-                        br = opnodes.Branch(
-                            xn.opcode, target=xn.target, relseg=xn.relseg)
-                        squish_these.append((xn, br))
-            if not squish_these:
-                break
-            for xn, br in squish_these:
-                seg.replacenode(xn, br)
+                if dist >= -256 and dist <= 254:
+                    br = opnodes.Branch(
+                        xn.opcode, target=xn.target, relseg=xn.relseg)
+                    seg.replacenode(xn, br)
+                else:
+                    new_jb.append(xn)
 
     def toplevelparse(self):
         """Called at a statement boundary. Parse one statement."""

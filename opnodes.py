@@ -318,17 +318,10 @@ class Operand(XNode):
             if node.relseg and self.relseg and (node.relseg != self.relseg):
                 val += (node.relseg.offset - self.relseg.offset)
             if self.pcrel:
-                # This could have been simplified but doing it step by step
-                # makes it possible to document/explain along the way...
-
-                adj = self.relseg.dot(after=self.instruction_node)
-
-                # adj is the pseudo-PC **after** this instruction; back it up
-                adj -= self.instruction_node.nbytes
-
-                # now add 4 back to get to the end of the first index word.
+                # need to add 4 to get to the end of the first index word.
                 # (which is guaranteed to exist because self.idw is not None)
-                adj += 4
+
+                adj = self.relseg.dot(before=self.instruction_node) + 4
 
                 # finally, if this is actually the second index word...
                 if self.prior_indexword:
