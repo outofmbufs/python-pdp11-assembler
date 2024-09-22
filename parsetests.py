@@ -831,7 +831,7 @@ class TestMethods(unittest.TestCase):
             if br >= 0o001600:
                 expected += [br]
             else:
-                expected += [ 0o1002, 0o137, 0o0 ]
+                expected += [0o1002, 0o137, 0o0]
         s += "foo: 777"
         expected += [0o777]
         self.simple_asm_check(s, expected)
