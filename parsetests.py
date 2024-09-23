@@ -611,6 +611,9 @@ class TestMethods(unittest.TestCase):
             # fine under v7 'as' (and works here too)
             (" x=4 ; 1 + 2x", [0o7]),
 
+            # more silly adjacency tests
+            ("[0][1][[2 3]4 5]", [0o17]),
+
             # jbr but with an expression on the branch target
             ("bozo: mov r0,r1\nmov r1, r2\njbr bozo+2\n",
              [0o010001, 0o010102, 0o000776]),

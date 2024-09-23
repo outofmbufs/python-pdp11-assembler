@@ -560,13 +560,10 @@ class ASMParser:
                 if not self._tk.peekif_IDmatches(TokenID.RBRA):
                     self.synerr("missing ]")
                     return None
-                self._tk.gettok()             # eat the ']'
             case TokenID.CONSTANT:
                 node = Constant(t0.value, tok=t0)
-                self._tk.gettok()
             case TokenID.IDENTIFIER if t0.value == '.':
                 node = self.dot_ref()
-                self._tk.gettok()
             case TokenID.IDENTIFIER:
                 # The semantic is that if there is already a definition of
                 # this symbol, even if incomplete, it gets "preserved" in
@@ -578,7 +575,6 @@ class ASMParser:
                     node = None
                 if node is None:
                     node = self.symtab.ref_symbol(t0.value)
-                self._tk.gettok()
             case TokenID.TEMPLABREF:
                 fb = t0.value[-1]
                 digit = int(t0.value[:-1])
@@ -598,8 +594,10 @@ class ASMParser:
                 else:
                     metaname = metalabel.name
                 node = self.symtab.ref_symbol(metaname)
-                self._tk.gettok()
+            case _:                          # typically NEWLINE
+                return None
 
+        self._tk.gettok()                    # accept "this token" (or ']')
         return node
 
     def _parseexpr(self):
