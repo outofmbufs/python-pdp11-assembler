@@ -95,6 +95,9 @@ from asx import _UndefinedSymbol, _SymbolTypeMismatch
 #    nbytes            -- the size, in bytes, of the byteseq the node will
 #                         produce in the second pass. NOTE: can be zero.
 #
+#    pass2start()      -- called after first pass and before second. The
+#                         SegmentOps .org/.boundary are processed here.
+#
 #    byteseq()         -- NOTE: Results only correct/valid after the
 #                         segments have been sized and had their offsets
 #                         established. Returns a bytes() object, in
@@ -105,8 +108,7 @@ from asx import _UndefinedSymbol, _SymbolTypeMismatch
 #
 # SUBCLASSES
 #   Subclasses for pure expressions are defined here.
-#   Additional subclasses for instruction formats are defined in asparse
-#   Symbol-table specific XNode subclasses are in symtab
+#   Additional subclasses for other purposes are defined elsewhere.
 #
 
 class XNode:
