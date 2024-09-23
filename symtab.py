@@ -80,9 +80,6 @@ class SymbolTable:
         def byteseq(self):
             return self.resolve().byteseq()
 
-        def clone(self, *args, **kwargs):
-            raise TypeError("clone on a SymRef")
-
     def __init__(self):
         self.symbols = {}
 

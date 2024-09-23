@@ -54,9 +54,6 @@ class _OperN(_Opcode):
         super().__init__(opcode, **kwargs)
         self.ops = ops
 
-    def clone(self, altvalue):
-        return self.__class__(altvalue, *self.ops, **self._kwargs)
-
     def _genparse(self, az, srcbits=6, dstbits=6):
         """Parse a fully-general one- or two-operand statement."""
 

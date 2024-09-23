@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import operator
+import copy
 from astokens import TokenID
 from asx import _UndefinedSymbol, _SymbolTypeMismatch
 
@@ -91,10 +92,6 @@ from asx import _UndefinedSymbol, _SymbolTypeMismatch
 #                         ALWAYS, be a Constant, and if there is a non-None
 #                         relseg it needs to be interpreted in a relative way.
 #
-#    clone()           -- Return a duplicate object but with the new
-#                         provided value. This is key to type-propagation,
-#                         which is part of how the CARET operator works.
-#
 #    nbytes            -- the size, in bytes, of the byteseq the node will
 #                         produce in the second pass. NOTE: can be zero.
 #
@@ -117,7 +114,7 @@ class XNode:
 
     NOVALUE = object()
 
-    def __init__(self, value, *, relseg=None, tok=None, **kwargs):
+    def __init__(self, value, *, relseg=None, tok=None):
         """Generic XNode. Attributes defined here:
           value -    the (type-specific) value of the node. If the node has
                      nothing that fits this concept, specify XNode.NOVALUE
@@ -137,15 +134,6 @@ class XNode:
             self.value = value
         self.relseg = relseg
         self.tok = tok
-
-        # subclasses can (usually) leverage the generic clone() method
-        # provided here if they pass in their extra kwargs for saving...
-        self._kwargs = kwargs
-
-    def clone(self, altvalue):
-        """Generic clone; return object of same type but new value."""
-        return self.__class__(
-            altvalue, relseg=self.relseg, tok=self.tok, **self._kwargs)
 
     def resolve(self):
         """Generic resolve; resolves it itself."""
@@ -330,13 +318,12 @@ class BinaryExpression(XNode):
         else:
             raise _SymbolTypeMismatch("incompatible types in expression")
 
-        # compute the new value
-        altvalue = self.BINOPS[self.op](lc.value, rc.value) & 0xFFFF
-
-        # and return it as a new object of the appropriate type
+        # return result as a new object of the appropriate type
         # NOTE: "resolve" this too, in case the newly-build object
         #       has resolve semantics (some do, e.g., Register)
-        return cloner.clone(altvalue).resolve()
+        r = copy.copy(cloner)
+        r.value = self.BINOPS[self.op](lc.value, rc.value) & 0xFFFF
+        return r.resolve()
 
 
 if __name__ == "__main__":
@@ -349,13 +336,16 @@ if __name__ == "__main__":
 
         def test2(self):
             c = Constant(18)
-            c2 = c.clone(3)
+            c2 = copy.copy(c)
+            c2.value = 3
             self.assertEqual(c2.resolve().value, 3)
+            self.assertEqual(c.resolve().value, 18)
 
         def test3(self):
             seg = object()
             c = Constant(42, relseg=seg)
-            c2 = c.clone(17)
+            c2 = copy.copy(c)
+            c2.value = 17
             self.assertEqual(c2.resolve().value, 17)
             self.assertEqual(c2.resolve().relseg, seg)
 

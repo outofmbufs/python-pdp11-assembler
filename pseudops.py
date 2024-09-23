@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import copy
 from expression import XNode, Constant
 from astokens import TokenID, STMT_ENDS
 
@@ -164,7 +165,8 @@ class _SegmentOps(PseudoOp):
         x = az.parseexpr()
         if x is None:
             return None
-        node = self.clone(x)
+        node = copy.copy(self)
+        node.value = x
         node.segment = az.curseg
         return node
 
@@ -181,7 +183,8 @@ class Org(_SegmentOps):
     @classmethod
     def implicit_org(cls, val, az):
         org = az.symtab['.org']
-        node = org.value.clone(val)
+        node = copy.copy(org.value)
+        node.value = val
         node.segment = az.curseg
         return node
 
