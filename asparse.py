@@ -344,7 +344,12 @@ class ASMParser:
             case TokenID.CONSTANT if t0.value in range(10):
                 lbldef = self.templabel(self.tmpsymconvert(t0.value), tok=t0)
             case _:
-                self.synerr(f"invalid label: '{t0.label}'")
+                # it's an invalid label. Because the value may have been
+                # converted (e.g., "99: nop" becomes t0.value 81) dig out the
+                # original string characters for the error message.
+                loc = t0.location
+                srcstr = loc.s[loc.startpos:loc.endpos]
+                self.synerr(f"invalid label: '{srcstr}'")
                 return
 
         self.curseg.addnode(lbldef)

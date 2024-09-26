@@ -27,7 +27,8 @@ import asconstants
 
 import asparse as AP
 
-from astokens import ASMTokenizer, Token, TokenID
+from tokenizer import Token, TokLoc
+from astokens import ASMTokenizer, TokenID
 from expression import BinaryExpression, XNode, Constant
 from opnodes import Operand, OneOper
 from asx import _UndefinedSymbol
@@ -37,7 +38,7 @@ class TestMethods(unittest.TestCase):
 
     # just so don't have to fill in the extra args
     def _TK(self, tokenID, val=None):
-        return Token(tokenID, val, location=(0, 0, 0))
+        return Token(tokenID, val, location=TokLoc("**TEST**"))
 
     # convenience to check firstpass automatically
     def firstpass_and_check(self, az):
