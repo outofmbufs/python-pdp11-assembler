@@ -452,6 +452,52 @@ class TestMethods(unittest.TestCase):
         self.full_asm_check(s, [(0, bytes([66, 16])),
                                 (8192, bytes([1, 0]))])
 
+    def test_tmplabel_good(self):
+        s = """
+            xb: clr r0
+            1: clr r1
+            2: clr r2
+            3: clr r3
+            4: br 4b
+            5: br 5f
+            6: br 1b
+            7: br 4f
+            8: br xf
+            9: br xb
+            xf: 5: clr r5
+            4: clr r4
+        """
+        expected = [             # obtained from running v7 as
+            0o5000,
+            0o5001,
+            0o5002,
+            0o5003,
+            0o0777,
+            0o0404,
+            0o0772,
+            0o0403,
+            0o0401,
+            0o0766,
+            0o5005,
+            0o5004
+        ]
+        self.simple_asm_check(s, expected)
+
+    def test_label_bad(self):
+        # test various illegal labels, including tmp labels
+        for bad in ("33", "-1", ":", "$", "(", "["):
+            errs = self.simple_asm_check(f"{bad}: clr r0", None)
+            # this is a bit iffy, but this tests the quality of the error
+            # string (does it include the bad characters?)
+            with self.subTest(bad=bad):
+                # note that the "-1" case gets parsed as an expression
+                # so it fails a different way. This attempts to only
+                # verify proper characters in "invalid label" messages
+                # THIS WHOLE TEST IDEA IS QUESTIONABLE since what it tests
+                # is the *content* of the error message...
+                if 'label' in errs[0]:
+                    self.assertTrue(bad in errs[0])
+
     def test_dotgood(self):
         simplecases = (
             # just up to the edge of the max
