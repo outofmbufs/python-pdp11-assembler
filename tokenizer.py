@@ -288,6 +288,11 @@ class Tokenizer:
 # processing the match and creating the token.
 
 class TokenMatch:
+    # these two regular expressions are often useful and tricky to get right.
+    # So they are provided here for convenience.
+    unicode_identifier_re = r'[^\W\d]\w*'
+    ascii_identifier_re = r'[A-Za-z_][A-Za-z_0-9]*'
+
     def __init__(self, tokname, regexp, /):
         self.tokname = tokname
         self.regexp = regexp
@@ -312,6 +317,9 @@ class TokenMatch:
     def action(self, val, loc, tkz, /, *, name=None):
         return tkz.tokentype(
             tkz.TokenID[name or self.tokname], self._value(val), loc)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.tokname}, {self.regexp})"
 
 
 class TokenIDOnly(TokenMatch):
@@ -358,7 +366,9 @@ class TokenMatchKeyword(TokenMatch):
 
        is equivalent to:
 
-            TokenMatch('IF', r'(if)(?![a-zA-Z0-9_])')
+            TokenMatch('IF', r'(if)(magic)
+
+       where 'magic' is "not the TokenMatch.unicode_identifier_re
     """
     def __init__(self, tokname, regexp=None, *args, **kwargs):
         if regexp is None:
@@ -367,7 +377,7 @@ class TokenMatchKeyword(TokenMatch):
 
     # broken out so can be overridden if application has other syntax
     def keyword_regexp(self, tokname):
-        return f"({tokname})(?![a-zA-Z0-9_])"
+        return f"({tokname})(?!{TokenMatch.unicode_identifier_re})"
 
 
 class TokenMatchIgnoreButKeep(TokenMatch):
@@ -414,15 +424,16 @@ if __name__ == "__main__":
         def test1(self):
             rules = [
                 TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
-                TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
+                TokenMatch('IDENTIFIER', TokenMatch.unicode_identifier_re),
                 TokenMatchInt('CONSTANT', r'-?[0-9]+'),
             ]
 
-            s = "    abc123 def  \n\n  ghi_jkl     123456\n"
+            s = "    abc123 def _has_underbars_ \n\n  ghi_jkl     123456\n"
             tkz = Tokenizer(rules, [s])
             expected_IDvals = [
                 (tkz.TokenID.IDENTIFIER, 'abc123'),
                 (tkz.TokenID.IDENTIFIER, 'def'),
+                (tkz.TokenID.IDENTIFIER, '_has_underbars_'),
                 (tkz.TokenID.NEWLINE, '\n'),
                 (tkz.TokenID.IDENTIFIER, 'ghi_jkl'),
                 (tkz.TokenID.CONSTANT, 123456),
@@ -498,7 +509,7 @@ if __name__ == "__main__":
                 # just a few other lexical elements thrown in for example
                 TokenMatch('LBRACE', r'{'),
                 TokenMatch('RBRACE', r'}'),
-                TokenMatch('IDENTIFIER', r'[A-Za-z_][A-Za-z_0-9]*'),
+                TokenMatch('IDENTIFIER', TokenMatch.ascii_identifier_re),
                 TokenMatchRuleSwitch('COMMENT_START', r'/\*'),
                 TokenMatch('BAD', r'.'),
             ]
@@ -686,5 +697,31 @@ if __name__ == "__main__":
             tkz = Tokenizer(rules)
             customs = [t.custom_arg for t in tkz.string_to_tokens('121')]
             self.assertEqual(customs, expected)
+
+        def test_keywords(self):
+            rules = [
+                TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
+                TokenMatchKeyword('if'),
+                TokenMatchKeyword('then'),
+                TokenMatch('IDENTIFIER', r'[^\W\d]\w*'),
+            ]
+
+            s = "if then Then thence thençe ifõ"
+            tkz = Tokenizer(rules, [s])
+            expected = [
+                (tkz.TokenID.IF, 'if'),
+                (tkz.TokenID.THEN, 'then'),
+                (tkz.TokenID.IDENTIFIER, 'Then'),
+                (tkz.TokenID.IDENTIFIER, 'thence'),
+                (tkz.TokenID.IDENTIFIER, 'thençe'),
+                (tkz.TokenID.IDENTIFIER, 'ifõ'),
+                (tkz.TokenID.NEWLINE, '\n')
+            ]
+
+            for x, t in zip(expected, tkz.tokens()):
+                id, val = x
+                with self.subTest(id=id, val=val, t=t):
+                    self.assertEqual(t.id, id)
+                    self.assertEqual(t.value, val)
 
     unittest.main()
