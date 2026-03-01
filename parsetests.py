@@ -27,8 +27,8 @@ import asconstants
 
 import asparse as AP
 
-from tokenizer import Token, TokLoc
-from astokens import ASMTokenizer, TokenID
+from tokenizer import TokLoc
+from astokens import ASMTokenizer, Token, TokenID
 from expression import BinaryExpression, XNode, Constant
 from opnodes import Operand, OneOper
 from asx import _UndefinedSymbol

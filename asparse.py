@@ -31,9 +31,9 @@ import asx
 import opnodes
 import pseudops
 
-from tokenizer import Token, TokLoc
+from tokenizer import TokLoc
 from tokutil import TokStreamEnhancer
-from astokens import TokenID, STMT_ENDS
+from astokens import Token, TokenID, STMT_ENDS
 from expression import XNode, Constant, Register, BinaryExpression
 from segment import Segment
 from symtab import SymbolTable

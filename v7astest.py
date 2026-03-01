@@ -99,7 +99,7 @@ if __name__ == '__main__':
                         openfiles = [info.f for info in infos]
                         openfiles.append(goldfile)
                         tokenizers = [
-                            ASMTokenizer(info.f, srcname=info.name).tokens()
+                            ASMTokenizer(info.f, loc=info.name).tokens()
                             for info in infos]
                         az = ASMParser(itertools.chain(*tokenizers))
                         if not az.firstpass():

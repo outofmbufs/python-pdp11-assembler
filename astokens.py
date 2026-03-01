@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, Token
+from tokenizer import Tokenizer, TokenMatch, TokenRules
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 
@@ -50,10 +50,12 @@ class TokenMatchASMConstant(TokenMatch):
 
 
 class TokenMatchID8(TokenMatch):
-    """In "id8" mode, long identifiers are accepted but truncated."""
+    """When "id8" mode is on, truncate long identifiers."""
 
-    def _value(self, val, /):
-        return val[:8]
+    def action(self, val, loc, tkz, /):
+        if tkz.id8:
+            val = val[:8]
+        return super().action(val, loc, tkz)
 
 
 class ASMTokenizer(Tokenizer):
@@ -64,23 +66,17 @@ class ASMTokenizer(Tokenizer):
 
         Arguments:
            Any Tokenizer argument -- see Tokenizer()
-           EXCEPT: the rules and the tokenIDs args are set here
-
-           id8      -- Turn on strict 8-char identifier *significance*
+           EXCEPT:
+              id8      -- Turn on strict 8-char identifier *significance*
 
         NOTE: To tokenize a SINGLE string s, do this:
            ASMTokenizer([s])
         """
 
         # the normal rules or the "truncate identifiers" rules...
-        if id8:
-            rules = [r if r.tokname != 'IDENTIFIER'
-                     else TokenMatchID8(r.tokname, r.regexp)
-                     for r in _rules]
-        else:
-            rules = _rules
+        self.id8 = id8
 
-        super().__init__(rules, *args, tokenIDs=TokenID, **kwargs)
+        super().__init__(_tokenrules, *args, **kwargs)
 
     @staticmethod
     def __deslash1(s):
@@ -148,9 +144,9 @@ class ASMTokenizer(Tokenizer):
             return (v * sign) & 0xFFFF
 
 
-_rules = [
+_tokenrules = TokenRules([
     TokenMatchIgnoreButKeep('NEWLINE', r'\s+', keep='\n'),
-    TokenMatch('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
+    TokenMatchID8('IDENTIFIER', r'[A-Za-z_~\.][A-Za-z_~\.0-9]*'),
     TokenMatch('TEMPLABREF', r'[0-9](f|b)'),
     TokenMatchASMConstant('CONSTANT', r'[0-9]+\.?'),
     TokenMatch('LSHIFT', r'\\<'),
@@ -188,9 +184,11 @@ _rules = [
 
     # but these can come after .. special tokens w/no 're' pattern
     TokenMatch('EOF', None)
-]
+])
 
-TokenID = Tokenizer.create_tokenID_enum(_rules)
+# These are conveniences, especially for ASParse
+TokenID = _tokenrules.TokenID          # dynamically-craeted TokenID enum
+Token = ASMTokenizer.Token             # the Token type
 
 # some handy categories
 STMT_ENDS = {TokenID.NEWLINE, TokenID.SEMICOLON}
