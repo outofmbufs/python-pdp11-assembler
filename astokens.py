@@ -24,6 +24,7 @@
 from tokenizer import Tokenizer, TokenMatch, TokenRules
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
+from tokenizer import TokenIDOnly
 
 
 # some ASM-specific TokenMatch subclasses
@@ -183,7 +184,7 @@ _tokenrules = TokenRules([
     TokenMatch('BAD', r'.'),
 
     # but these can come after .. special tokens w/no 're' pattern
-    TokenMatch('EOF', None)
+    TokenIDOnly('EOF')
 ])
 
 # These are conveniences, especially for ASParse
