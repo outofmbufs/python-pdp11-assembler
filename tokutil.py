@@ -34,7 +34,9 @@ import itertools
 
 
 class TokStreamEnhancer:
-    def __init__(self, *tokstreams, lasttok=None, eoftok=None):
+    _NOTGIVEN = object()           # sentinel for args where None is allowed
+
+    def __init__(self, *tokstreams, lasttok=_NOTGIVEN, eoftok=_NOTGIVEN):
         """chain N tokstreams into a single stream, with pushback capability.
 
         Optional argument lasttok will be returned as a token at the end
@@ -49,7 +51,7 @@ class TokStreamEnhancer:
         end of the tokstreams has been reached AND no pushbacks remain.
         """
 
-        if lasttok is not None:
+        if lasttok is not self._NOTGIVEN:
             tokstreams = (*tokstreams, iter((lasttok,)))
 
         self._tokens = itertools.chain.from_iterable(tokstreams)
@@ -65,7 +67,7 @@ class TokStreamEnhancer:
     def __iter__(self):
         """Using iterator protocol on TokStreamEnhancer is somewhat silly.
         Nevertheless, here it is. There are two important restrictions:
-           1) eoftok must be None
+           1) eoftok must be _NOTGIVEN
            2) ungettok can not be used.
         See comments in code for details.
         """
@@ -74,7 +76,7 @@ class TokStreamEnhancer:
         # StopIteration and the other requires it. If what was desired
         # was for one special token to appear at the end of the iteration
         # then lasttok should be used instead.
-        if self._eoftok is not None:
+        if self._eoftok is not self._NOTGIVEN:
             raise TypeError("cannot __iter__ with an eoftok present")
 
         # The other restriction is: no ungettok. This is because
@@ -99,7 +101,7 @@ class TokStreamEnhancer:
             try:
                 t = next(self._tokens)
             except StopIteration:
-                if self._eoftok is None:
+                if self._eoftok is self._NOTGIVEN:
                     raise
                 t = self._eoftok
             self._pushedback.append(t)
@@ -108,8 +110,6 @@ class TokStreamEnhancer:
     def peektok(self):
         """Return a single token, WITHOUT consuming it."""
         return self.peektoks(1)[0]
-
-    _NOTGIVEN = object()
 
     def peekif(self, pred, /, *, eofmatch=_NOTGIVEN):
         """Return (peek) a token, if pred(token) is True, else return None.
@@ -405,5 +405,31 @@ if __name__ == "__main__":
             for t in foo:
                 with self.assertRaises(TypeError):
                     foo.ungettok(t)
+
+        # documentation says any kind of iterable can be used, not just
+        # a tokenizer. But if the elements of that iterable can contain
+        # None objects, peeking with at_eof didn't work correctly. That
+        # has been fixed, this test exposed that with the old code.
+
+        def test_eofnone(self):
+            it1 = [1, 2, None]
+
+            te = TokStreamEnhancer(it1)
+            r = []
+            while not te.at_eof():
+                r.append(te.gettok())
+            self.assertEqual(it1, r)
+
+
+        def test_eofnone2(self):
+            it1 = [1, 2, None]
+            it2 = [3, 4, 5]
+
+            te = TokStreamEnhancer(it1, it2)
+            r = []
+            while not te.at_eof():
+                r.append(te.gettok())
+            self.assertEqual(it1+it2, r)
+
 
     unittest.main()
