@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 
-from tokenizer import Tokenizer, TokenMatch, TokenRules
+from tokenizer import Tokenizer, TokenMatch, TokenRules, TokenAction
 from tokenizer import TokenMatchIgnoreButKeep
 from tokenizer import TokenMatchIgnore
 from tokenizer import TokenIDOnly
@@ -32,31 +32,30 @@ from tokenizer import TokenIDOnly
 class TokenMatchASMString(TokenMatch):
     """Take the <> brackets off an 'as' string."""
 
-    def action(self, val, loc, tkz, /):
-        v = val[1:-1]
-        name = self.tokname
+    def action(self, ta, /):
         try:
-            s = ASMTokenizer.str_deslash(v)
+            ta.value = ASMTokenizer.str_deslash(ta.value[1:-1])
         except ValueError:
-            s = f"bad string: **{v}**"
-            name = 'BAD'
-        return super().action(s, loc, tkz, name=name)
+            ta.value = f"bad string: **{ta.value}**"
+            ta.token_id = 'BAD'
+        return super().action(ta)
 
 
 class TokenMatchASMConstant(TokenMatch):
     """Convert all the various integer formats; see _intcvt."""
 
-    def _value(self, val, /):
-        return ASMTokenizer._intcvt(val)
+    def action(self, ta, /):
+        ta.value = ASMTokenizer._intcvt(ta.value)
+        return super().action(ta)
 
 
 class TokenMatchID8(TokenMatch):
     """When "id8" mode is on, truncate long identifiers."""
 
-    def action(self, val, loc, tkz, /):
-        if tkz.id8:
-            val = val[:8]
-        return super().action(val, loc, tkz)
+    def action(self, ta, /):
+        if ta.tkz.id8:
+            ta.value = ta.value[:8]
+        return super().action(ta)
 
 
 class ASMTokenizer(Tokenizer):
@@ -188,7 +187,7 @@ _tokenrules = TokenRules([
 ])
 
 # These are conveniences, especially for ASParse
-TokenID = _tokenrules.TokenID          # dynamically-craeted TokenID enum
+TokenID = _tokenrules.TokenID          # dynamically-created TokenID enum
 Token = ASMTokenizer.Token             # the Token type
 
 # some handy categories
