@@ -172,8 +172,7 @@ class Tokenizer:
             loc = TokLoc(sourcename=self.sourcename, lineno=self.lineno)
         ctx.location = loc.copy_with(s=s)
 
-        # outer 'while' loop allows for rules changes, causing inner 'for'
-        # loop to (re)start _matches midstring and with new rules.
+        # outer 'while' loop allows for rules changes
         while True:
             grules = self.current_ruleset
             for tm in self._matches(ctx):
@@ -183,9 +182,11 @@ class Tokenizer:
                     tok = tm.action
                 if tok is not None:
                     yield tok
-                # If the tm.action changed the lexing rules...
+                # If the tm.action changed the lexing rules then get
+                # out of this inner 'for' loop so as to get a
+                # new _matches sequence
                 if grules is not self.current_ruleset:
-                    break                       # restart via outer 'while'
+                    break                       # but nuke this _matches
             else:
                 # 'for' loop ended without a rules change, so all done
                 break
@@ -558,5 +559,9 @@ class TokenMatchRuleSwitch(TokenMatch):
 
 
 if __name__ == "__main__":
-    from tkztests import TestMethods, run_unit_tests
-    run_unit_tests(TestMethods)
+    try:
+        from tkztests import TestMethods, run_unit_tests
+    except ModuleNotFoundError:
+        pass
+    else:
+        run_unit_tests(TestMethods)
