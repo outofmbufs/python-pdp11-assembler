@@ -11,7 +11,7 @@ import unittest
 from dataclasses import dataclass
 from enum import Enum
 
-from tokenizer import Tokenizer, TokenRules, TokenMatch, TokLoc
+from tokenizer import Tokenizer, TokenRules, TokenMatch, TokLoc, TokenAction
 from tokenizer import NamedRuleSet, TokenIDOnly, TokenMatchIgnore
 from tokenizer import TokenMatchIgnoreButKeep, TokenMatchInt
 from tokenizer import TokenMatchKeyword, TokenMatchRuleSwitch
@@ -29,7 +29,7 @@ class TestMethods(unittest.TestCase):
             TokenMatch('IDENTIFIER', TokenMatch.ID_UNICODE),
             TokenMatchInt('CONSTANT', r'-?[0-9]+'),
         ])
-        s = "    abc123 def _has_underbars_ \n\n  ghi_jkl     123456\n"
+        s = "    abc123 def _has_underbars_ \n\n  ghi_jkl  -7   123456\n"
         tkz = Tokenizer(rules, [s])
         expected_IDvals = [
             (rules.TokenID.IDENTIFIER, 'abc123'),
@@ -37,14 +37,16 @@ class TestMethods(unittest.TestCase):
             (rules.TokenID.IDENTIFIER, '_has_underbars_'),
             (rules.TokenID.NEWLINE, '\n'),
             (rules.TokenID.IDENTIFIER, 'ghi_jkl'),
+            (rules.TokenID.CONSTANT, -7),
             (rules.TokenID.CONSTANT, 123456),
             (rules.TokenID.NEWLINE, '\n')
         ]
 
         for x, t in strictzip(expected_IDvals, tkz.tokens()):
-            tid, val = x
-            self.assertEqual(t.id, tid)
-            self.assertEqual(t.value, val)
+            with self.subTest(x=x, t=t):
+                tid, val = x
+                self.assertEqual(t.id, tid)
+                self.assertEqual(t.value, val)
 
     def test_badregexp(self):
         # make sure bad regexps cause ValueError in TokenMatch
@@ -102,12 +104,13 @@ class TestMethods(unittest.TestCase):
         )
 
         for rules, expected in testvectors:
-            tkz = Tokenizer(rules, [s])
-            for x, t in strictzip(expected, tkz.tokens()):
-                ids, val = x
-                tid = getattr(rules.TokenID, ids)
-                self.assertEqual(t.id, tid)
-                self.assertEqual(t.value, val)
+            with self.subTest(rules=rules, expected=expected):
+                tkz = Tokenizer(rules, [s])
+                for x, t in strictzip(expected, tkz.tokens()):
+                    ids, val = x
+                    tid = getattr(rules.TokenID, ids)
+                    self.assertEqual(t.id, tid)
+                    self.assertEqual(t.value, val)
 
     def test_iter(self):
         rules = TokenRules([TokenMatch('A', 'a'),
@@ -129,12 +132,13 @@ class TestMethods(unittest.TestCase):
         toks = list(tkz)
         self.assertEqual(len(toks), 0)
 
+    # make sure all the startpos/endpos stuff is correct
     def test_locations(self):
         rules = TokenRules([TokenMatch('ONE_A', r'a'),
                             TokenMatch('ANY_B', r'b+'),
                             TokenMatch('CAB', r'ca+b')])
 
-        tkz = Tokenizer(rules, ["abaabbbcaaabbxcab"])
+        tkz = Tokenizer(rules, ["abaabbbcaaabbXcab"])
 
         expected = [
             # TokenID, startpos, endpos
@@ -445,6 +449,7 @@ class TestMethods(unittest.TestCase):
     # this tests whether the Token type can successfully be overridden
     # by subclassing Tokenizer
     def test_subclasstoken(self):
+        """Example of overriding Token."""
 
         @dataclass
         class MyToken:
@@ -463,6 +468,22 @@ class TestMethods(unittest.TestCase):
         tkz = MyTokenizer(rules, [s])
         for t in tkz.tokens():
             self.assertEqual(t.foo, 'bar')
+
+    def test_subclassTA(self):
+        """Example of overriding TokenAction."""
+        @dataclass
+        class MyTA(TokenAction):
+            def maketoken(self):
+                return "foo"
+
+        class MyTokenizer(Tokenizer):
+            TokenAction = MyTA
+
+        rules = TokenRules([TokenMatch('A', 'a')])
+        s = "aa"
+        tkz = MyTokenizer(rules, [s])
+        for t in tkz.tokens():
+            self.assertEqual(t, 'foo')
 
     def test_locinfo(self):
         t = Tokenizer(TokenRules([TokenMatch('A', 'a')]))
@@ -498,7 +519,7 @@ class TestMethods(unittest.TestCase):
                 self.assertEqual(t.value, val)
 
 
-def run_unit_tests(_=None):
+def run_unit_tests(*args):
     unittest.main()
 
 
