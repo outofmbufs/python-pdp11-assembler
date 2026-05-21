@@ -275,34 +275,28 @@ class Tokenizer:
             raise self.MatchError(
                 f"unmatched @{ctx.location}", location=ctx.location)
 
-    def _matches(self, ctx):
-        """Supports string_to_tokens; return next match and update context."""
+    def __consec_finditer(self, ctx):
+        """Generate CONSECUTIVE matches in the context string."""
 
+        # Unless there has been a rules change, ctx.endpos is zero at the
+        # start (i.e., given to finditer). After a rules change, ctx.endpos
+        # is the end of the rule-changingtoken, in which case matching
+        # (finditer) picks up there (with new rules)
         compiled_re = self.current_ruleset.joined_crx
-
-        # This generates matches until one of three things happens:
-        #   - no more matches (duh)
-        #   - failed match (does not match next character)
-        #   - [subtle] a rules change occurs in which case the caller
-        #              abandons this generator and will come back with the
-        #              new set of rules activated.
-        #
-        # Thus, usually ctx.endpos (given to finditer as the starting pos)
-        # is zero at the start. But if this is after a rules change,
-        # ctx.endpos will be where matching resumes with the new rules.
-
         for mobj in compiled_re.finditer(ctx.location.s, ctx.endpos):
-            ctx.startpos = mobj.start()
-            # Check for matches not consuming the immediate next char
-            if ctx.startpos != ctx.endpos:
-                # flip start/end so applications can know what did not match
-                ctx.startpos, ctx.endpos = ctx.endpos, ctx.startpos
+            if mobj.start() != ctx.endpos:
+                ctx.startpos, ctx.endpos = ctx.endpos, mobj.start()
                 raise self.MatchError(
                     f"unmatched @{ctx.location}", location=ctx.location)
+            yield mobj
 
+    def _matches(self, ctx):
+        """Supports string_to_tokens; return next match and update context."""
+        for mobj in self.__consec_finditer(ctx):
             tm = self.current_ruleset.pmap[mobj.lastgroup]
-            ctx.token_id = tm.tokname
+            ctx.startpos = mobj.start()
             ctx.endpos = mobj.end()
+            ctx.token_id = tm.tokname
             ctx.value = mobj.group(0)
             yield tm
 

@@ -362,7 +362,7 @@ if __name__ == "__main__":
             self.assertTrue(t.at_eof())
 
         def test_mark_example(self):
-            # the test case form the comments in tokmark()/accept:
+            # the test case from the comments in tokmark()/accept:
             foo = TokStreamEnhancer(iter((1,)), iter((2,)), iter((3, 4, 5)))
             with foo.tokmark() as ctx:
                 t1 = foo.gettok()
@@ -420,7 +420,6 @@ if __name__ == "__main__":
                 r.append(te.gettok())
             self.assertEqual(it1, r)
 
-
         def test_eofnone2(self):
             it1 = [1, 2, None]
             it2 = [3, 4, 5]
@@ -430,6 +429,5 @@ if __name__ == "__main__":
             while not te.at_eof():
                 r.append(te.gettok())
             self.assertEqual(it1+it2, r)
-
 
     unittest.main()
